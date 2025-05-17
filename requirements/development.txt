@@ -1,0 +1,10 @@
+# Import base requirements
+-r base.txt
+
+# Development tools
+django-debug-toolbar>=4.2.0,<5.0.0
+ipython>=8.12.0,<9.0.0
+flake8>=6.0.0,<7.0.0
+black>=23.3.0,<24.0.0
+pytest>=7.3.1,<8.0.0
+pytest-django>=4.5.2,<5.0.0

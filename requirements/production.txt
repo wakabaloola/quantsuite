@@ -1,0 +1,7 @@
+# Import base requirements
+-r base.txt
+
+# Production-specific
+gunicorn>=21.2.0,<22.0.0
+django-redis>=5.3.0,<6.0.0
+whitenoise>=6.4.0,<7.0.0  # For static file serving
