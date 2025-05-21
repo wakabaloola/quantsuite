@@ -1,5 +1,4 @@
 
-
 # PostgreSQL Setup for QSuite
 
 This guide explains how to set up PostgreSQL for the QSuite application.
