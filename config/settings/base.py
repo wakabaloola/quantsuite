@@ -1,6 +1,4 @@
 # config/settings/base.py
-"""Base settings, i.e. settings common for all environments"""
-
 from pathlib import Path
 from decouple import config
 
@@ -42,9 +40,9 @@ THIRD_PARTY_APPS = [
 ]
 
 LOCAL_APPS = [
-    'accounts',
-    'core',
-    'market_data',
+    'apps.accounts',
+    'apps.core',
+    'apps.market_data',
     # Our custom apps will go here
 ]
 

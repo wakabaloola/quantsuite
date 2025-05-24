@@ -17,7 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from market_data import views
+from apps.market_data import views
 
 router = DefaultRouter()
 router.register(r'sources', views.DataSourceViewSet, basename='source')

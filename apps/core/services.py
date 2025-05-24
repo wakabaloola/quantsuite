@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import torch
 from django.conf import settings
-from market_data.models import MarketData, BaseModel
+from apps.market_data.models import MarketData, BaseModel
 
 class FinancialDataService:
     """Service for financial data operations"""
