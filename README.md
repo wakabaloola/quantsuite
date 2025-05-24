@@ -38,6 +38,12 @@ This guide explains how to set up PostgreSQL for the QSuite application.
   GRANT ALL PRIVILEGES ON DATABASE qsuite_dev TO qsuite_user;
   \q
   ```
+  For better security, after creating the user we can instead restrict permissions more granularly:
+  ```sql
+  GRANT CONNECT ON DATABASE qsuite_dev TO qsuite_user;
+  GRANT USAGE ON SCHEMA public TO qsuite_user;
+  GRANT CREATE ON SCHEMA public TO qsuite_user;
+  ```
 
 3. Verify the database was created:
    ```bash
@@ -97,3 +103,40 @@ This guide explains how to set up PostgreSQL for the QSuite application.
   ```bash
   psql qsuite_dev < qsuite_backup.sql
   ```
+
+
+# How to Create a New Data Source
+
+```python
+from apps.accounts.models import User
+from apps.market_data.models import DataSource
+```
+Can check existings data sources,
+```python
+for source in DataSource.objects.all():
+    print(f"- {source.name} ({source.code})")
+```
+The app label is given by `User._meta.app_label`.  We can create a data source as follows,
+```python
+yahoo_source = DataSource.objets.create(
+    name="Yahoo Finance",
+    code="YAHOO",
+    url="https://finance.yahoo.com"
+)
+print(f"Created: {yahoo_source}")
+```
+Can then get the existing data source with code "YAHOO" as follows,
+```python
+try:
+    yahoo_source = DataSource.objects.get(code="YAHOO")
+    print(f"Found existing source: {yahoo_source}")
+except DataSource.DoesNotExist:
+    print(f"No source with code 'YAHOO' found.")
+```
+Finally, to update the existing Yahoo source,
+```python
+yahoo_source = DataSource.objects.get(code="YAHOO")
+yahoo_source.name = "Yahoo Finance (Updated)"
+yahoo_source.save()
+print(f"Updated: {yahoo_source}")
+```
