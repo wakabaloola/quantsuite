@@ -7,8 +7,23 @@ from decouple import config
 # Build paths like this: BASE_DIR / 'subdir'
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
+# Database
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': config('DB_NAME'),
+        'USER': config('DB_USER'),
+        'PASSWORD': config('DB_PASSWORD'),
+        'HOST': config('DB_HOST'),
+        'PORT': config('DB_PORT'),
+    }
+}
+
 # SECRET KEY from environment
 SECRET_KEY = config('SECRET_KEY')
+
+# Custom user model
+AUTH_USER_MODEL = 'accounts.User'
 
 # Application definition
 DJANGO_APPS = [
@@ -21,10 +36,15 @@ DJANGO_APPS = [
 ]
 
 THIRD_PARTY_APPS = [
-    # Will add DRF, Celery, etc. later
+    'rest_framework',
+    'django_filters',
+    # Will add Celery etc. later
 ]
 
 LOCAL_APPS = [
+    'accounts',
+    'core',
+    'market_data',
     # Our custom apps will go here
 ]
 
@@ -77,3 +97,6 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# GPU Acceleration
+USE_GPU = config('USE_GPU', default=False, cast=bool)
