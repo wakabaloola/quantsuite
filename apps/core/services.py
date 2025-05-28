@@ -21,19 +21,22 @@ class FinancialDataService:
 
     @classmethod
     def get_historical_data(cls, ticker_symbol, start_date, end_date):
-        """Get historical market data for a ticker"""
+        """Optimized version preserving your advantages"""
+        # Only fetch necessary fields to reduce memory
+        fields = ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'adjusted_close']
+
         queryset = MarketData.objects.filter(
             ticker__symbol=ticker_symbol,
-            timestamp__gte=start_date,
-            timestamp__lte=end_date
-        ).order_by('timestamp')
-        
+            timestamp__range=(start_date, end_date)
+        ).order_by('timestamp').values(*fields)
+
         if not queryset.exists():
             return None
-            
-        data = pd.DataFrame.from_records(queryset.values())
-        data.set_index('timestamp', inplace=True)
-        return data
+
+        # Use more efficient DataFrame construction
+        data = pd.DataFrame.from_records(queryset, coerce_float=True)
+        data['timestamp'] = pd.to_datetime(data['timestamp'], utc=True)
+        return data.set_index('timestamp')
 
 class ComputationService:
     """Service for numerical computations"""
