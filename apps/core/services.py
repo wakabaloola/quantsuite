@@ -1,3 +1,4 @@
+# apps/core/services.py
 """Core services for quant finance platform"""
 import numpy as np
 import pandas as pd

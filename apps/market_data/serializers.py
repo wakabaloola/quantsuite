@@ -1,4 +1,5 @@
-"""Serializers for market data API"""
+# apps/market_data/serializers.py
+"""Serializers for market data API: these classes convert model instances to/from JSON for API use via Django REST Framework"""
 from rest_framework import serializers
 from .models import DataSource, Ticker, MarketData
 
@@ -12,13 +13,11 @@ class TickerSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Ticker
-        fields = ['id', 'symbol', 'name', 'data_source', 
-                 'currency', 'description', 'is_active']
+        fields = ['id', 'symbol', 'name', 'data_source', 'currency', 'description', 'is_active']
 
 class MarketDataSerializer(serializers.ModelSerializer):
     ticker = TickerSerializer(read_only=True)
     
     class Meta:
         model = MarketData
-        fields = ['id', 'ticker', 'timestamp', 'open', 'high', 
-                 'low', 'close', 'volume', 'adjusted_close']
+        fields = ['id', 'ticker', 'timestamp', 'open', 'high', 'low', 'close', 'volume', 'adjusted_close']
