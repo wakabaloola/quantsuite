@@ -1,5 +1,7 @@
 # QSuite - Quantitative Finance Platform
 
+This `README.md` is currently under construction. A lot of the developments already implemented and in the pipeline are explained more fully in the `docs` directory.
+
 ## Project Overview
 QSuite is a Django-based platform for quantitative finance analysis and algorithmic trading. It provides:
 
