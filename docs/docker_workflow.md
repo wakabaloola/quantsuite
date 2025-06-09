@@ -206,6 +206,23 @@ docker-compose exec web python manage.py dumpdata --indent=2 market_data > fixtu
 
 ### 🐍 Django Shell & Management Commands
 
+**Shortcut for ZShell:**
+One may place the following in `.zshrc`
+```bash
+dpython() {
+    docker-compose exec web python "$@"
+}
+```
+to simplify many of the following commands. E.g., this allows one to write
+```bash
+dpython manage.py startapp new_app_name
+```
+instead of:
+```bash
+docker-compose exec web python manage.py startapp new_app_name
+```
+This document does not assume such a shortcut exists.
+
 **Interactive shell:**
 ```bash
 # Standard Django shell
