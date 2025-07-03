@@ -9,3 +9,7 @@ black>=23.3.0,<24.0.0
 pytest>=7.3.1,<8.0.0
 pytest-django>=4.5.2,<5.0.0
 celery>=5.3
+
+# Enhanced technical analysis
+ta-lib-bin>=0.4.25  # Technical Analysis Library
+plotly>=5.17.0  # Interactive charts

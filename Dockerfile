@@ -1,10 +1,8 @@
 # Development stage
 FROM python:3.11-slim AS development
-
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONFAULTHANDLER=1
-
 WORKDIR /app
 
 # Install system dependencies
@@ -13,17 +11,17 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Install precompiled TA-Lib binary (no C library compilation needed)
+RUN pip install ta-lib-bin
+
 # Install Python dependencies
 COPY requirements/ .
 RUN pip install --upgrade pip && \
     pip install -r development.txt
-
 COPY . .
 
 # Production stage
 FROM development AS production
-
 RUN pip install gunicorn && \
     pip uninstall -y django-debug-toolbar
-
 CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000"]

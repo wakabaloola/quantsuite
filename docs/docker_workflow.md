@@ -511,7 +511,7 @@ docker-compose build --no-cache web
 
 # Check Docker system resources
 docker system df
-docker system prune  # Clean up space
+docker system prune -a # Clean up space (unused containers, networks, images)
 ```
 
 **Database connection issues:**

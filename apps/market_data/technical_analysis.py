@@ -2,8 +2,8 @@
 """
 Professional Technical Analysis Framework for Quantitative Research
 
-This module provides a comprehensive set of technical indicators and analysis tools
-for quantitative researchers. It includes both built-in indicators and a framework
+This module provides a comprehensive set of technical indicators and analysis tools. 
+It includes both built-in indicators and a framework
 for implementing custom indicators.
 
 Usage Examples:

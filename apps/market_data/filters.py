@@ -3,11 +3,12 @@
 
 import django_filters
 from django.db.models import Q
+from django.db import models
 from decimal import Decimal
 from datetime import datetime, timedelta
 from django.utils import timezone
 
-from .models import Ticker, MarketData, Exchange, Sector, Industry
+from .models import Ticker, MarketData, Exchange, Sector, Industry, FundamentalData
 
 
 class TickerFilter(django_filters.FilterSet):
@@ -284,10 +285,14 @@ class MarketDataFilter(django_filters.FilterSet):
         """Filter for valid OHLC data (high >= low, etc.)"""
         if value:
             return queryset.filter(
-                high__gte=models.F('low'),
-                high__gte=models.F('open'),
-                high__gte=models.F('close'),
-                low__lte=models.F('open'),
+                high__gte=models.F('low')
+            ).filter(
+                high__gte=models.F('open')
+            ).filter(
+                high__gte=models.F('close')
+            ).filter(
+                low__lte=models.F('open')
+            ).filter(
                 low__lte=models.F('close')
             )
         return queryset
