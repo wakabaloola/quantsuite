@@ -33,7 +33,7 @@ from apps.market_data.views import (
 # API Documentation
 schema_view = get_schema_view(
     openapi.Info(
-        title="QuantSuite Quantitative Research Platform API",
+        title="QuantSuite Platform API",
         default_version='v1',
         description="""
         Professional-grade API for quantitative research and algorithmic trading.
