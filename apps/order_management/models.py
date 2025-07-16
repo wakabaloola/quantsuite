@@ -8,6 +8,8 @@ All orders and trades are SIMULATED - no real money involved.
 
 from django.db import models
 from django.contrib.auth import get_user_model
+from django.contrib.postgres.fields import JSONField
+from django.core.validators import MinValueValidator, MaxValueValidator
 from apps.market_data.models import BaseModel
 from apps.trading_simulation.models import (
     SimulatedExchange, SimulatedInstrument, UserSimulationProfile
@@ -449,3 +451,309 @@ class MatchingEngine(BaseModel):
     
     def __str__(self):
         return f"MatchingEngine-{self.exchange.code}"
+
+
+# Add these imports at the top
+from django.contrib.postgres.fields import JSONField
+from django.core.validators import MinValueValidator, MaxValueValidator
+
+# Add these new models to your existing models.py file
+
+class AlgorithmType(models.TextChoices):
+    """Types of algorithmic trading strategies"""
+    TWAP = 'TWAP', 'Time-Weighted Average Price'
+    VWAP = 'VWAP', 'Volume-Weighted Average Price'
+    IMPLEMENTATION_SHORTFALL = 'IS', 'Implementation Shortfall'
+    ICEBERG = 'ICEBERG', 'Iceberg Order'
+    SNIPER = 'SNIPER', 'Sniper Algorithm'
+    PARTICIPATION_RATE = 'POV', 'Percentage of Volume'
+    CUSTOM = 'CUSTOM', 'Custom Strategy'
+
+
+class AlgorithmStatus(models.TextChoices):
+    """Algorithm execution status"""
+    PENDING = 'PENDING', 'Pending'
+    RUNNING = 'RUNNING', 'Running'
+    PAUSED = 'PAUSED', 'Paused'
+    COMPLETED = 'COMPLETED', 'Completed'
+    CANCELLED = 'CANCELLED', 'Cancelled'
+    FAILED = 'FAILED', 'Failed'
+
+
+class AlgorithmicOrder(BaseModel):
+    """
+    SIMULATED Algorithmic Order - Complex trading strategies
+    Parent order that spawns multiple child orders over time
+    """
+    # Order identification
+    algo_order_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    client_algo_id = models.CharField(max_length=50, blank=True)
+    
+    # User and trading context
+    user = models.ForeignKey(
+        User, 
+        on_delete=models.CASCADE,
+        related_name='algorithmic_orders'
+    )
+    exchange = models.ForeignKey(
+        SimulatedExchange,
+        on_delete=models.CASCADE,
+        related_name='algo_orders'
+    )
+    instrument = models.ForeignKey(
+        SimulatedInstrument,
+        on_delete=models.CASCADE,
+        related_name='algo_orders'
+    )
+    
+    # Algorithm details
+    algorithm_type = models.CharField(max_length=20, choices=AlgorithmType.choices)
+    side = models.CharField(max_length=10, choices=OrderSide.choices)
+    total_quantity = models.PositiveIntegerField(help_text="Total shares to trade")
+    
+    # Execution parameters
+    start_time = models.DateTimeField()
+    end_time = models.DateTimeField()
+    
+    # Algorithm-specific parameters stored as JSON
+    algorithm_parameters = models.JSONField(
+        default=dict,
+        help_text="Algorithm-specific configuration parameters"
+    )
+    
+    # Execution constraints
+    min_slice_size = models.PositiveIntegerField(
+        default=100,
+        help_text="Minimum size for child orders"
+    )
+    max_slice_size = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text="Maximum size for child orders"
+    )
+    participation_rate = models.DecimalField(
+        max_digits=5, decimal_places=4, null=True, blank=True,
+        validators=[MinValueValidator(0.0001), MaxValueValidator(1.0)],
+        help_text="Maximum participation rate (0.0001-1.0)"
+    )
+    
+    # Price constraints
+    limit_price = models.DecimalField(
+        max_digits=15, decimal_places=6, null=True, blank=True,
+        help_text="Hard limit price"
+    )
+    price_tolerance = models.DecimalField(
+        max_digits=8, decimal_places=6, null=True, blank=True,
+        help_text="Price tolerance as percentage"
+    )
+    
+    # Execution status
+    status = models.CharField(
+        max_length=20, choices=AlgorithmStatus.choices, default=AlgorithmStatus.PENDING
+    )
+    executed_quantity = models.PositiveIntegerField(default=0)
+    remaining_quantity = models.PositiveIntegerField(default=0)
+    average_execution_price = models.DecimalField(
+        max_digits=15, decimal_places=6, null=True, blank=True
+    )
+    
+    # Performance metrics
+    total_slippage = models.DecimalField(
+        max_digits=15, decimal_places=6, default=Decimal('0.000000')
+    )
+    implementation_shortfall = models.DecimalField(
+        max_digits=15, decimal_places=6, null=True, blank=True
+    )
+    
+    # Timestamps
+    created_timestamp = models.DateTimeField(auto_now_add=True)
+    started_timestamp = models.DateTimeField(null=True, blank=True)
+    completed_timestamp = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        db_table = 'simulation_algorithmic_orders'
+        ordering = ['-created_timestamp']
+        indexes = [
+            models.Index(fields=['user', 'status']),
+            models.Index(fields=['algorithm_type', 'status']),
+            models.Index(fields=['start_time', 'end_time']),
+        ]
+    
+    def __str__(self):
+        return f"AlgoOrder {self.algo_order_id} - {self.algorithm_type} {self.total_quantity} {self.instrument.real_ticker.symbol}"
+    
+    def save(self, *args, **kwargs):
+        """Auto-calculate remaining quantity"""
+        self.remaining_quantity = self.total_quantity - self.executed_quantity
+        super().save(*args, **kwargs)
+    
+    @property
+    def fill_ratio(self):
+        """Return fill ratio as percentage"""
+        if self.total_quantity > 0:
+            return (self.executed_quantity / self.total_quantity) * 100
+        return 0
+    
+    @property
+    def duration_minutes(self):
+        """Calculate algorithm duration in minutes"""
+        if self.start_time and self.end_time:
+            return int((self.end_time - self.start_time).total_seconds() / 60)
+        return 0
+
+
+class AlgorithmExecution(BaseModel):
+    """
+    Track individual execution steps of algorithmic orders
+    """
+    algo_order = models.ForeignKey(
+        AlgorithmicOrder,
+        on_delete=models.CASCADE,
+        related_name='executions'
+    )
+    
+    # Execution details
+    execution_step = models.PositiveIntegerField(help_text="Step number in algorithm")
+    child_order = models.ForeignKey(
+        SimulatedOrder,
+        on_delete=models.CASCADE,
+        related_name='algorithm_executions',
+        null=True, blank=True
+    )
+    
+    # Market conditions at execution
+    market_price = models.DecimalField(max_digits=15, decimal_places=6)
+    market_volume = models.PositiveIntegerField(default=0)
+    spread_bps = models.DecimalField(max_digits=8, decimal_places=2, default=Decimal('0.00'))
+    
+    # Execution results
+    executed_quantity = models.PositiveIntegerField(default=0)
+    execution_price = models.DecimalField(
+        max_digits=15, decimal_places=6, null=True, blank=True
+    )
+    slippage_bps = models.DecimalField(
+        max_digits=8, decimal_places=2, default=Decimal('0.00')
+    )
+    
+    # Timing
+    scheduled_time = models.DateTimeField()
+    execution_time = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        db_table = 'simulation_algorithm_executions'
+        ordering = ['execution_step']
+    
+    def __str__(self):
+        return f"Execution {self.execution_step} - {self.algo_order.algo_order_id}"
+
+
+class CustomStrategy(BaseModel):
+    """
+    User-defined custom trading strategies
+    """
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='custom_strategies'
+    )
+    
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
+    
+    # Strategy definition
+    strategy_code = models.TextField(
+        help_text="Python code defining the strategy logic"
+    )
+    strategy_parameters = models.JSONField(
+        default=dict,
+        help_text="Configurable strategy parameters"
+    )
+    
+    # Risk controls
+    max_position_size = models.DecimalField(
+        max_digits=15, decimal_places=2, default=Decimal('10000.00')
+    )
+    max_daily_loss = models.DecimalField(
+        max_digits=15, decimal_places=2, default=Decimal('1000.00')
+    )
+    
+    # Status
+    is_active = models.BooleanField(default=True)
+    is_validated = models.BooleanField(default=False)
+    
+    # Performance tracking
+    total_executions = models.PositiveIntegerField(default=0)
+    total_pnl = models.DecimalField(
+        max_digits=15, decimal_places=2, default=Decimal('0.00')
+    )
+    win_rate = models.DecimalField(
+        max_digits=5, decimal_places=2, default=Decimal('0.00'),
+        help_text="Win rate as percentage"
+    )
+    
+    class Meta:
+        db_table = 'simulation_custom_strategies'
+        unique_together = ['user', 'name']
+    
+    def __str__(self):
+        return f"Strategy: {self.name} by {self.user.username}"
+
+
+class StrategyBacktest(BaseModel):
+    """
+    Backtesting results for trading strategies
+    """
+    strategy = models.ForeignKey(
+        CustomStrategy,
+        on_delete=models.CASCADE,
+        related_name='backtests'
+    )
+    
+    # Backtest parameters
+    start_date = models.DateField()
+    end_date = models.DateField()
+    initial_capital = models.DecimalField(
+        max_digits=15, decimal_places=2, default=Decimal('100000.00')
+    )
+    instruments_tested = models.JSONField(
+        default=list,
+        help_text="List of instruments included in backtest"
+    )
+    
+    # Results
+    final_capital = models.DecimalField(
+        max_digits=15, decimal_places=2, default=Decimal('0.00')
+    )
+    total_return = models.DecimalField(
+        max_digits=8, decimal_places=4, default=Decimal('0.0000'),
+        help_text="Total return as percentage"
+    )
+    annual_return = models.DecimalField(
+        max_digits=8, decimal_places=4, default=Decimal('0.0000')
+    )
+    sharpe_ratio = models.DecimalField(
+        max_digits=8, decimal_places=4, null=True, blank=True
+    )
+    max_drawdown = models.DecimalField(
+        max_digits=8, decimal_places=4, default=Decimal('0.0000')
+    )
+    
+    # Trade statistics
+    total_trades = models.PositiveIntegerField(default=0)
+    winning_trades = models.PositiveIntegerField(default=0)
+    losing_trades = models.PositiveIntegerField(default=0)
+    average_trade_pnl = models.DecimalField(
+        max_digits=15, decimal_places=2, default=Decimal('0.00')
+    )
+    
+    # Execution details
+    backtest_results = models.JSONField(
+        default=dict,
+        help_text="Detailed backtest results and trade log"
+    )
+    
+    class Meta:
+        db_table = 'simulation_strategy_backtests'
+        ordering = ['-start_date']
+    
+    def __str__(self):
+        return f"Backtest: {self.strategy.name} ({self.start_date} to {self.end_date})"

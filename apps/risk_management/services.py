@@ -493,6 +493,40 @@ class RiskManagementService:
             return RiskStatus.NORMAL
 
 
+    def validate_algorithmic_order(self, algo_order) -> Dict:
+        """Validate an algorithmic order before execution"""
+        try:
+            violations = []
+            
+            # Check order size limits
+            if algo_order.total_quantity > 10000:
+                violations.append(f"Order size {algo_order.total_quantity} exceeds maximum 10,000")
+            
+            # Check algorithm duration
+            duration_hours = (algo_order.end_time - algo_order.start_time).total_seconds() / 3600
+            if duration_hours > 24:
+                violations.append(f"Algorithm duration {duration_hours:.1f}h exceeds maximum 24h")
+            
+            # Check user cash balance for buy orders
+            if algo_order.side == 'BUY':
+                estimated_value = algo_order.total_quantity * (algo_order.limit_price or 100)
+                if estimated_value > algo_order.user.simulation_profile.virtual_cash_balance:
+                    violations.append("Insufficient cash balance for algorithmic order")
+            
+            return {
+                'approved': len(violations) == 0,
+                'violations': violations
+            }
+            
+        except Exception as e:
+            logger.error(f"Error validating algorithmic order: {e}")
+            return {
+                'approved': False,
+                'violations': [f"Validation error: {str(e)}"]
+            }
+
+
+
 class ComplianceService:
     """
     Service for managing compliance rules and checks
@@ -658,3 +692,5 @@ class PositionLimitService:
         except Exception as e:
             self.logger.error(f"Error checking individual limit: {e}")
             return None
+
+
