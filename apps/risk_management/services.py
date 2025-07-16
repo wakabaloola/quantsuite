@@ -526,7 +526,6 @@ class RiskManagementService:
             }
 
 
-
 class ComplianceService:
     """
     Service for managing compliance rules and checks
