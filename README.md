@@ -1,27 +1,35 @@
 # QSuite - Quantitative Finance Platform
 
-This `README.md` is currently under construction. A lot of the developments already implemented and in the pipeline are explained more fully in the `docs` directory.
-
-## Project Overview
 QSuite is a Django-based platform for quantitative finance analysis and algorithmic trading. It provides:
 
 - Market data storage and processing
 - REST API for data access
+- Real-time trading simulation
 - Quantitative analysis tools
 - GPU-accelerated computations (macOS supported via Metal)
+- Risk management and compliance monitoring
+- Trading performance analytics
 
 ## Project Structure
 
 ```
 qsuite/
 ├── apps/
-│   ├── accounts/          # Custom user management
-│   ├── core/             # Shared functionality
-│   └── market_data/       # Financial data models and API
-├── config/               # Django project config
-├── requirements/         # Dependency management
-├── static/               # Static files
-└── media/                # User-uploaded files
+│   ├── accounts/          # Custom user management and authentication
+│   ├── core/              # Shared functionality and utilities
+│   ├── market_data/       # Financial data models and API
+│   ├── order_management/  # Algorithmic order execution
+│   ├── risk_management/   # Risk assessment and compliance
+│   ├── trading_analytics/ # Performance reporting and metrics
+│   └── trading_simulation/ # Real-time trading simulation
+├── config/                # Django project configuration
+├── docs/                  # Project documentation
+├── logs/                  # Application logs
+├── media/                 # User-uploaded files
+├── requirements/          # Dependency management
+├── scripts/               # Utility scripts
+├── static/                # Static files
+└── tests/                 # Comprehensive test suite
 ```
 
 ## Key Components
@@ -31,24 +39,35 @@ qsuite/
 - **market_data.DataSource**: Market data providers (exchanges, APIs)
 - **market_data.Ticker**: Financial instruments
 - **market_data.MarketData**: Time-series OHLCV data
+- **order_management.AlgorithmicOrder**: Algorithm-generated orders
+- **risk_management.RiskProfile**: User risk tolerance profiles
+- **trading_analytics.PerformanceMetric**: Trading performance metrics
+- **trading_simulation.Simulation**: Trading simulation scenarios
 
 ### Services
 - **FinancialDataService**: Data normalization, volatility calculations
 - **ComputationService**: GPU-accelerated matrix operations
+- **RiskAssessmentService**: Real-time risk monitoring
+- **SimulationService**: Trading scenario simulation
+- **OrderExecutionService**: Algorithmic order processing
 
 ### API Endpoints
-- `/api/market-data/sources/` - Data sources management
-- `/api/market-data/tickers/` - Financial instruments
-- `/api/market-data/prices/` - Historical price data
+- `/api/accounts/` - User authentication and management
+- `/api/market-data/` - Market data access
+- `/api/orders/` - Order management
+- `/api/risk/` - Risk management
+- `/api/analytics/` - Trading performance
+- `/api/simulation/` - Trading simulation
 
 ## Development Setup
 
 ### Prerequisites
 - Python 3.10+
 - PostgreSQL 17+
-- Redis (for future Celery integration)
+- Redis 7+
+- Docker (optional)
 
-### Installation
+### Installation (Traditional)
 1. Clone the repository
 2. Create and activate virtual environment:
    ```bash
@@ -66,6 +85,11 @@ qsuite/
    ```bash
    python manage.py migrate
    ```
+
+### Installation (Docker)
+```bash
+docker-compose up --build
+```
 
 ### Database Configuration
 Configure PostgreSQL with:
@@ -85,6 +109,7 @@ DB_USER=qsuite_user
 DB_PASSWORD=your_password
 DB_HOST=localhost
 DB_PORT=5432
+REDIS_URL=redis://localhost:6379
 
 # Optional
 USE_GPU=True  # Enable Metal acceleration on macOS
@@ -97,6 +122,11 @@ USE_GPU=True  # Enable Metal acceleration on macOS
 python manage.py runserver
 ```
 
+### Running Celery Worker
+```bash
+celery -A config worker -l info
+```
+
 ### Testing
 ```bash
 python manage.py test
@@ -105,18 +135,33 @@ python manage.py test
 ### API Documentation
 Browseable API available at `http://localhost:8000/api/`
 
-### Working with Market Data
+### Real-time WebSocket Endpoint
+`ws://localhost:8000/ws/simulation/` - For trading simulation updates
 
-#### Fetching Data
+## Working with Market Data
+
+### Fetching Data
 ```python
 from apps.market_data.services import MarketDataService
 data = MarketDataService.get_historical_data('AAPL', '2024-01-01', '2024-12-31')
 ```
 
-#### Calculating Volatility
+### Calculating Technical Indicators
 ```python
-from apps.core.services import FinancialDataService
-volatility = FinancialDataService.calculate_volatility(data['close'])
+from apps.market_data.technical_analysis import calculate_rsi
+rsi = calculate_rsi(data['close'], period=14)
+```
+
+### Running a Trading Simulation
+```python
+from apps.trading_simulation.services import SimulationService
+simulation = SimulationService.run_simulation(
+    strategy='mean_reversion',
+    symbols=['AAPL', 'MSFT'],
+    start_date='2025-01-01',
+    end_date='2025-03-31',
+    capital=100000
+)
 ```
 
 ## Extending the System
@@ -124,30 +169,53 @@ volatility = FinancialDataService.calculate_volatility(data['close'])
 ### Adding New Data Sources
 1. Create a new DataSource record
 2. Implement fetcher in `market_data/services.py`
-3. Add API endpoint if needed
+3. Add API endpoint in `market_data/views.py`
 
-### Creating New Analysis Tools
-1. Add methods to `FinancialDataService`
-2. Consider GPU acceleration via `ComputationService`
+### Creating New Trading Strategies
+1. Add strategy implementation in `order_management/algorithm_services.py`
+2. Create serializer in `order_management/algorithm_serializers.py`
+3. Add API endpoint in `order_management/algorithm_views.py`
 
-### Adding New Models
-1. Create model in appropriate app
-2. Add serializers and views
-3. Create and run migrations
+### Adding Risk Management Rules
+1. Create new model in `risk_management/models.py`
+2. Implement rule checking in `risk_management/services.py`
+3. Add API endpoint in `risk_management/views.py`
 
 ## Deployment Considerations
 
 - Use PostgreSQL connection pooling
 - Configure proper CORS settings
-- Set up Celery for async tasks
-- Implement proper monitoring for quantitative workloads
+- Set up Celery for async tasks with Redis backend
+- Implement monitoring for quantitative workloads
+- Use production-ready WebSocket server (Daphne or similar)
+- Set up log rotation for application logs
 
 ## Performance Tips
 
 - Use `select_related` and `prefetch_related` for API queries
-- Consider materialized views for common aggregations
-- Utilize GPU acceleration for matrix operations
+- Utilize materialized views for common aggregations
 - Implement caching for frequently accessed data
+- Offload computationally intensive tasks to Celery
+- Use GPU acceleration for technical indicator calculations
+
+## Testing
+The project includes comprehensive tests:
+- Unit tests for models and services
+- Integration tests for API endpoints
+- WebSocket communication tests
+- Celery task tests
+
+Run all tests with:
+```bash
+python manage.py test
+```
+
+## Documentation
+Additional documentation is available in the `docs/` directory:
+- `api_notes.md` - API design and implementation details
+- `docker_workflow.md` - Docker setup and deployment
+- `real-time_data_feeds_and_websocket_implementation.md` - Real-time data architecture
+- `regulatory_requirements_notes.md` - Compliance considerations
 
 ## License
 Proprietary - © 2025 QSuite Technologies
