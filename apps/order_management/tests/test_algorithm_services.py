@@ -686,7 +686,7 @@ class AlgorithmExecutionEngineTestCase(TestCase):
         algo_order.refresh_from_db()
         self.assertEqual(algo_order.status, 'FAILED')
     
-    @patch('apps.order_management.algorithm_services.get_channel_layer')
+    @patch("channels.layers.get_channel_layer")
     def test_websocket_broadcasting(self, mock_channel_layer):
         """Test WebSocket broadcasting functionality"""
         # Mock channel layer
@@ -771,19 +771,20 @@ class ParticipationRateAlgorithmTestCase(TestCase):
             start_time=timezone.now(),
             end_time=timezone.now() + timedelta(hours=2),
             participation_rate=Decimal('0.20'),  # 20% participation
-            remaining_quantity=800
+            executed_quantity=200  # 200 already executed, 800 remaining
         )
-        
+
         pov = ParticipationRateAlgorithm(algo_order)
-        
-        # Test with market volume of 5000
+
+        # Test with market volume of 5000 - algorithm should want 1000 but limit to 800 remaining
         quantity = pov.calculate_execution_quantity(5000, 60)
-        expected = 5000 * 0.20  # 1000 shares
-        
-        # Should not exceed remaining quantity
-        self.assertEqual(quantity, 800)
-        
+        expected_target = 5000 * 0.20  # 1000 shares
+        remaining = algo_order.remaining_quantity  # 800 shares
+        expected_result = min(int(expected_target), remaining)
+
+        self.assertEqual(quantity, expected_result)  # Should respect remaining quantity limit
+
         # Test with low market volume
         quantity = pov.calculate_execution_quantity(100, 60)
         expected = 100 * 0.20  # 20 shares
-        self.assertEqual(quantity, expected)
+        self.assertEqual(quantity, int(expected))

@@ -154,3 +154,10 @@ class FillSerializer(serializers.ModelSerializer):
             'is_aggressive', 'liquidity_flag', 'created_at'
         ]
         read_only_fields = ['fill_id', 'gross_amount', 'net_amount', 'created_at']
+
+# Algorithm Trading Serializers
+from .algorithm_serializers import (
+    AlgorithmicOrderSerializer, AlgorithmExecutionSerializer,
+    CustomStrategySerializer, StrategyBacktestSerializer,
+    AlgorithmDashboardSerializer, AlgorithmPerformanceSerializer
+)
