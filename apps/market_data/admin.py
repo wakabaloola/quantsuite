@@ -38,7 +38,7 @@ class DataSourceAdmin(admin.ModelAdmin):
 
 @admin.register(Exchange)
 class ExchangeAdmin(admin.ModelAdmin):
-    list_display = ['name', 'code', 'country', 'currency', 'timezone', 'is_active']
+    list_display = ['name', 'code', 'yf_suffix', 'country', 'currency', 'timezone', 'is_active']
     list_filter = ['country', 'currency', 'is_active']
     search_fields = ['name', 'code', 'country']
     readonly_fields = ['created_at', 'updated_at']

@@ -23,11 +23,25 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
 
-# Import viewsets
+# Import market_data viewsets
 from apps.market_data.views import (
     DataSourceViewSet, ExchangeViewSet, TickerViewSet, MarketDataViewSet,
     DataIntegrationViewSet, TechnicalAnalysisViewSet, AnalyticsViewSet,
     ScreeningViewSet, PortfolioViewSet
+)
+
+# Import simulation viewsets
+from apps.trading_simulation.views import (
+    SimulatedExchangeViewSet, TradingSessionViewSet
+)
+from apps.order_management.views import (
+    SimulatedOrderViewSet, OrderBookViewSet, SimulatedTradeViewSet
+)
+from apps.risk_management.views import (
+    PositionLimitViewSet, ComplianceViewSet
+)
+from apps.trading_analytics.views import (
+    TradingPerformanceViewSet, PortfolioAnalyticsViewSet
 )
 
 # API Documentation
@@ -87,6 +101,17 @@ router.register(r'screening', ScreeningViewSet, basename='screening')
 
 # Portfolio management
 router.register(r'portfolios', PortfolioViewSet, basename='portfolio')
+
+# Simulated
+router.register(r'simulation/exchanges', SimulatedExchangeViewSet, basename='sim-exchange')
+router.register(r'simulation/sessions', TradingSessionViewSet, basename='sim-session')
+router.register(r'simulation/orders', SimulatedOrderViewSet, basename='sim-order')
+router.register(r'simulation/orderbook', OrderBookViewSet, basename='sim-orderbook')
+router.register(r'simulation/trades', SimulatedTradeViewSet, basename='sim-trade')
+router.register(r'simulation/risk', PositionLimitViewSet, basename='sim-risk')
+router.register(r'simulation/compliance', ComplianceViewSet, basename='sim-compliance')
+router.register(r'simulation/analytics', TradingPerformanceViewSet, basename='sim-analytics')
+router.register(r'simulation/portfolio-analytics', PortfolioAnalyticsViewSet, basename='sim-portfolio')
 
 urlpatterns = [
     # Admin interface

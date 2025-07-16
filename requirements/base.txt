@@ -36,7 +36,7 @@ scipy>=1.15.3,<2.0.0
 scikit-learn>=1.6.1,<2.0.0
 
 # Financial data sources
-yfinance>=0.2.18,<1.0.0
+yfinance>=0.2.32,<1.0.0
 requests>=2.31.0,<3.0.0
 
 # Date handling and timezones
@@ -49,3 +49,7 @@ psutil>=5.9.0,<6.0.0
 # Optional GPU acceleration
 torch>=2.2.2  # GPU acceleration with Metal on macOS
 numba>=0.59.0  # JIT compilation
+
+# Websocket
+channels>=4.0.0,<5.0.0
+channels-redis>=4.1.0,<5.0.0

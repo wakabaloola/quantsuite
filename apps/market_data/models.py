@@ -23,6 +23,12 @@ class Exchange(BaseModel):
     """Stock exchanges and trading venues"""
     name = models.CharField(max_length=100)                                 # "New York Stock Exchange"
     code = models.CharField(max_length=10, unique=True)                     # "NYSE"
+    yf_suffix = models.CharField(
+            max_length=5,
+            default='',
+            blank=True,
+            help_text="Yahoo Finance exchange suffix (e.g., 'AT' for Athens)"
+    )
     country = models.CharField(max_length=2)                                # "US" (ISO country code)
     currency = models.CharField(max_length=3)                               # "USD"
     timezone = models.CharField(max_length=50, default='UTC')               # default timezone 'UTC'
@@ -73,7 +79,7 @@ class Ticker(BaseModel):
     description = models.TextField(blank=True)
 
     # Market classification
-    exchange = models.ForeignKey(Exchange, on_delete=models.CASCADE)
+    exchange = models.ForeignKey(Exchange, on_delete=models.CASCADE, default=1)
     sector = models.ForeignKey(Sector, on_delete=models.SET_NULL, null=True, blank=True)
     industry = models.ForeignKey(Industry, on_delete=models.SET_NULL, null=True, blank=True)
 
@@ -125,7 +131,7 @@ class MarketData(BaseModel):
     transactions = models.IntegerField(null=True, blank=True)
 
     # Data quality
-    data_source = models.ForeignKey(DataSource, on_delete=models.CASCADE)
+    data_source = models.ForeignKey(DataSource, on_delete=models.CASCADE, default=1)
     is_adjusted = models.BooleanField(default=False)
 
     class Meta:

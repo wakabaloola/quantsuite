@@ -43,12 +43,17 @@ THIRD_PARTY_APPS = [
     
     # Cache and sessions
     'django_redis',
+    'channels',
 ]
 
 LOCAL_APPS = [
     'apps.accounts',
     'apps.core',
     'apps.market_data',
+    'apps.order_management',
+    'apps.risk_management',
+    'apps.trading_analytics',
+    'apps.trading_simulation',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -89,6 +94,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'config.wsgi.application'
+ASGI_APPLICATION = 'config.asgi.application'
 
 # Internationalization
 LANGUAGE_CODE = 'en-us'
@@ -165,12 +171,26 @@ CACHES = {
     }
 }
 
+# WebSocket channel layers configuration
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            "hosts": [REDIS_URL],
+            "capacity": 1500,
+            "expiry": 60,
+        },
+    },
+}
+
 # Session configuration
 SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 SESSION_CACHE_ALIAS = 'default'
 SESSION_COOKIE_AGE = 86400  # 24 hours
 
 # Celery Configuration
+from celery.schedules import crontab
+
 CELERY_BROKER_URL = config('CELERY_BROKER_URL', default=f'{REDIS_URL}/0')
 CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default=f'{REDIS_URL}/0')
 
@@ -189,6 +209,92 @@ CELERY_TASK_ROUTES = {
 CELERY_TASK_ANNOTATIONS = {
     'apps.market_data.tasks.ingest_market_data_async': {'rate_limit': '10/m'},
     'apps.market_data.tasks.refresh_real_time_quotes': {'rate_limit': '100/m'},
+}
+
+CELERY_BEAT_SCHEDULE = {
+    # Market data updates every 5 minutes during market hours
+    'update-simulated-market-data': {
+        'task': 'apps.trading_simulation.tasks.update_simulated_market_data',
+        'schedule': crontab(minute='*/5', hour='9-16', day_of_week='1-5'),
+    },
+
+    # Portfolio value updates every 30 minutes
+    'update-portfolio-values': {
+        'task': 'apps.trading_simulation.tasks.update_portfolio_values',
+        'schedule': crontab(minute='*/30', hour='9-16', day_of_week='1-5'),
+    },
+
+    # Risk metrics every 2 hours
+    'update-risk-metrics': {
+        'task': 'apps.trading_simulation.tasks.update_risk_metrics',
+        'schedule': crontab(minute=0, hour='*/2', day_of_week='1-5'),
+    },
+
+    # Order cleanup every hour
+    'cleanup-expired-orders': {
+        'task': 'apps.trading_simulation.tasks.cleanup_expired_orders',
+        'schedule': crontab(minute=0),
+    },
+
+    # Market volatility simulation every minute during active hours
+    'simulate-market-volatility': {
+        'task': 'apps.trading_simulation.tasks.simulate_market_volatility',
+        'schedule': crontab(minute='*', hour='9-16', day_of_week='1-5'),
+    },
+
+    # Process pending orders every 30 seconds
+    'process-pending-orders': {
+        'task': 'apps.trading_simulation.tasks.process_pending_market_orders',
+        'schedule': 30.0,
+        'options': {'expires': 25}
+    },
+
+    # Daily reports at 5 PM
+    'generate-daily-reports': {
+        'task': 'apps.trading_simulation.tasks.generate_daily_reports',
+        'schedule': crontab(hour=17, minute=0, day_of_week='1-5'),
+    },
+
+    # Reset daily statistics at market open
+    'reset-daily-statistics': {
+        'task': 'apps.trading_simulation.tasks.reset_daily_order_book_statistics',
+        'schedule': crontab(hour=9, minute=0, day_of_week='1-5'),
+    },
+
+    # Calculate performance metrics daily at 6 PM
+    'calculate-performance-metrics': {
+        'task': 'apps.trading_simulation.tasks.calculate_performance_metrics',
+        'schedule': crontab(hour=18, minute=0, day_of_week='1-5'),
+    },
+
+    # System health check every 15 minutes
+    'health-check-simulation': {
+        'task': 'apps.trading_simulation.tasks.health_check_simulation_system',
+        'schedule': crontab(minute='*/15'),
+    },
+}
+
+
+# Add simulation-specific settings
+SIMULATION_SETTINGS = {
+    'DEFAULT_VIRTUAL_BALANCE': 100000.00,  # $100k starting balance
+    'MAX_ORDER_SIZE': 10000,               # Maximum order size
+    'ENABLE_MARKET_MAKERS': True,          # Enable simulated market makers
+    'TRADING_FEE_PERCENTAGE': 0.001,       # 0.1% trading fee
+    'MARKET_HOURS': {
+        'start': '09:30',
+        'end': '16:00',
+        'timezone': 'US/Eastern'
+    }
+}
+
+# WebSocket settings
+WEBSOCKET_SETTINGS = {
+    'ALLOWED_HOSTS': ['*'],
+    'HEARTBEAT_INTERVAL': 30,
+    'MAX_CONNECTIONS_PER_USER': 5,
+    'RATE_LIMIT_PER_MINUTE': 100,
+    'ENABLE_COMPRESSION': True,
 }
 
 # External API Configuration
