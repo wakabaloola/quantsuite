@@ -1,3 +1,4 @@
+# apps/order_management/algorithm_services.py
 import logging
 from typing import List, Dict, Optional, Tuple
 from decimal import Decimal
@@ -157,22 +158,32 @@ class VWAPAlgorithm:
         except Exception as e:
             self.logger.error(f"Error generating VWAP schedule: {e}")
             return []
+
     
     def _get_volume_profile(self) -> List[float]:
-        """Get historical intraday volume profile"""
+        """Get historical intraday volume profile with validation"""
         # Get parameters
         params = self.algo_order.algorithm_parameters
         profile_type = params.get('volume_profile', 'STANDARD')
         
         if profile_type == 'AGGRESSIVE':
             # Front-loaded volume distribution
-            return [0.15, 0.20, 0.18, 0.15, 0.12, 0.10, 0.06, 0.04]
+            profile = [0.15, 0.20, 0.18, 0.15, 0.12, 0.10, 0.06, 0.04]
         elif profile_type == 'PASSIVE':
             # Back-loaded volume distribution
-            return [0.05, 0.08, 0.10, 0.12, 0.15, 0.18, 0.20, 0.12]
+            profile = [0.05, 0.08, 0.10, 0.12, 0.15, 0.18, 0.20, 0.12]
         else:
             # Standard U-shaped intraday volume profile
-            return [0.12, 0.15, 0.11, 0.09, 0.08, 0.10, 0.13, 0.22]
+            profile = [0.12, 0.15, 0.11, 0.09, 0.08, 0.10, 0.13, 0.22]
+
+        # Validate profile sum
+        total = sum(profile)
+        if abs(total - 1.0) > 0.01: # Allow 1% tolerance
+            self.logger.warning(f'Volume profile sum is {total:.2f}, normalising')
+            profile = [p / total for p in profile]
+
+        return profile
+
     
     def calculate_participation_rate(self, current_volume: int) -> float:
         """Calculate appropriate participation rate"""
@@ -209,7 +220,8 @@ class IcebergAlgorithm:
             remaining_quantity = self.algo_order.total_quantity
             step = 1
             
-            while remaining_quantity > 0:
+            max_slices = 1000 # safety limit
+            while remaining_quantity > 0 and step <= max_slices:
                 # Calculate slice size
                 slice_quantity = min(display_size, remaining_quantity)
                 
@@ -237,6 +249,9 @@ class IcebergAlgorithm:
                 if step > 1000:
                     self.logger.warning("Iceberg algorithm generated too many slices, stopping")
                     break
+
+            if step > max_slices:
+                self.logger.error('Iceberg algorithm exceeded maximum slice limit')
             
             self.logger.info(f"Generated Iceberg schedule: {len(schedule)} slices")
             return schedule
@@ -353,9 +368,9 @@ class ParticipationRateAlgorithm:
         """Calculate quantity to execute based on market volume"""
         try:
             participation_rate = float(self.algo_order.participation_rate or 0.20)
+            market_volume = int(market_volume)
             target_quantity = int(market_volume * participation_rate)
-            
-            # Don't exceed remaining quantity - THIS WAS THE BUG
+
             remaining = self.algo_order.remaining_quantity
             return min(target_quantity, remaining)
             
@@ -389,7 +404,11 @@ class AlgorithmExecutionEngine:
                 # Generate execution schedule based on algorithm type
                 algorithm = self._get_algorithm_instance(algo_order)
                 if not algorithm:
-                    raise ValueError(f"Unsupported algorithm type: {algo_order.algorithm_type}")
+                    algo_order.status = 'REJECTED'
+                    algo_order.reject_reason = f"Unsupported algorithm type: {algo_order.algorithm_type}"
+                    algo_order.save()
+                    self.logger.error(f"Unsupported algorithm type: {algo_order.algorithm_type}")
+                    return False
                 
                 schedule = algorithm.generate_execution_schedule()
                 if not schedule:

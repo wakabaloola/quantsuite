@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from datetime import timedelta, date
 from decimal import Decimal
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 from apps.order_management.models import AlgorithmicOrder, AlgorithmExecution, SimulatedOrder
 from apps.order_management.algorithm_services import (
@@ -684,13 +684,15 @@ class AlgorithmExecutionEngineTestCase(TestCase):
         self.assertFalse(success)
         
         algo_order.refresh_from_db()
-        self.assertEqual(algo_order.status, 'FAILED')
+        self.assertEqual(algo_order.status, 'REJECTED')
     
     @patch("channels.layers.get_channel_layer")
     def test_websocket_broadcasting(self, mock_channel_layer):
-        """Test WebSocket broadcasting functionality"""
+        """Test WebSocket broadcasting functionality with asunc support"""
         # Mock channel layer
+        mock_group_send = AsyncMock()
         mock_channel = MagicMock()
+        mock_channel.group_send = mock_group_send
         mock_channel_layer.return_value = mock_channel
         
         algo_order = AlgorithmicOrder.objects.create(
@@ -708,9 +710,6 @@ class AlgorithmExecutionEngineTestCase(TestCase):
         # Test algorithm update broadcast
         self.engine._broadcast_algorithm_update(algo_order, 'STARTED')
         
-        # Verify channel layer was called
-        mock_channel_layer.assert_called()
-        
         # Test execution update broadcast
         execution = AlgorithmExecution.objects.create(
             algo_order=algo_order,
@@ -723,7 +722,7 @@ class AlgorithmExecutionEngineTestCase(TestCase):
         self.engine._broadcast_execution_update(execution)
         
         # Should have been called twice now
-        self.assertEqual(mock_channel_layer.call_count, 2)
+        self.assertEqual(mock_group_send.call_count, 2)
 
 
 class ParticipationRateAlgorithmTestCase(TestCase):
