@@ -53,3 +53,4 @@ numba>=0.59.0  # JIT compilation
 # Websocket
 channels>=4.0.0,<5.0.0
 channels-redis>=4.1.0,<5.0.0
+daphne>=4.0.0,<5.0.0

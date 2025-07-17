@@ -1,3 +1,4 @@
+# apps/order_management/tests/test_algorithm_services.py
 from django.test import TestCase
 from django.contrib.auth import get_user_model
 from django.utils import timezone
@@ -688,13 +689,106 @@ class AlgorithmExecutionEngineTestCase(TestCase):
     
     @patch("channels.layers.get_channel_layer")
     def test_websocket_broadcasting(self, mock_channel_layer):
-        """Test WebSocket broadcasting functionality with asunc support"""
+        """Test WebSocket broadcasting functionality with async support"""
         # Mock channel layer
         mock_group_send = AsyncMock()
         mock_channel = MagicMock()
         mock_channel.group_send = mock_group_send
         mock_channel_layer.return_value = mock_channel
+
+        algo_order = AlgorithmicOrder.objects.create(
+            user=self.user,
+            exchange=self.sim_exchange,
+            instrument=self.instrument,
+            algorithm_type='TWAP',
+            side='BUY',
+            total_quantity=1000,
+            start_time=timezone.now(),
+            end_time=timezone.now() + timedelta(hours=2),
+            status='RUNNING'
+        )
+
+        # Test algorithm update broadcast
+        self.engine._broadcast_algorithm_update(algo_order, 'STARTED')
+
+        # Algorithm updates now broadcast to multiple groups:
+        # - orders_{user_id}
+        # - algorithms_{user_id}
+        # So we expect at least 2 calls
+        self.assertGreaterEqual(mock_group_send.call_count, 2)
+
+        # Test execution update broadcast
+        execution = AlgorithmExecution.objects.create(
+            algo_order=algo_order,
+            execution_step=1,
+            scheduled_time=timezone.now(),
+            executed_quantity=100,
+            market_price=Decimal("100.00")
+        )
+
+        initial_call_count = mock_group_send.call_count
+        self.engine._broadcast_execution_update(execution)
+
+        # Should have additional calls for execution update
+        self.assertGreater(mock_group_send.call_count, initial_call_count)
+
+    @patch('channels.layers.get_channel_layer')
+    def test_algorithm_lifecycle_websocket_integration(self, mock_channel_layer):
+        """Test complete algorithm lifecycle with WebSocket updates"""
+        mock_layer = MagicMock()
+        mock_channel_layer.return_value = mock_layer
         
+        # Create algorithm order
+        algo_order = AlgorithmicOrder.objects.create(
+            user=self.user,
+            exchange=self.sim_exchange,
+            instrument=self.instrument,
+            algorithm_type='TWAP',
+            side='BUY',
+            total_quantity=1000,
+            start_time=timezone.now(),
+            end_time=timezone.now() + timedelta(hours=2),
+            algorithm_parameters={'slice_count': 5}
+        )
+        
+        # Mock risk validation
+        with patch.object(self.engine.risk_service, 'validate_algorithmic_order') as mock_risk:
+            mock_risk.return_value = {'approved': True, 'violations': []}
+            
+            # Test start algorithm
+            success = self.engine.start_algorithm(algo_order)
+            self.assertTrue(success)
+            
+            # Verify start broadcast
+            start_calls = [call for call in mock_layer.group_send.call_args_list 
+                          if 'STARTED' in str(call)]
+            self.assertTrue(len(start_calls) > 0)
+            
+            # Test pause algorithm
+            success = self.engine.pause_algorithm(algo_order)
+            self.assertTrue(success)
+            
+            # Verify pause broadcast
+            pause_calls = [call for call in mock_layer.group_send.call_args_list 
+                          if 'PAUSED' in str(call)]
+            self.assertTrue(len(pause_calls) > 0)
+            
+            # Test resume algorithm
+            success = self.engine.resume_algorithm(algo_order)
+            self.assertTrue(success)
+            
+            # Verify resume broadcast
+            resume_calls = [call for call in mock_layer.group_send.call_args_list 
+                           if 'RESUMED' in str(call)]
+            self.assertTrue(len(resume_calls) > 0)
+
+    @patch('channels.layers.get_channel_layer')
+    def test_execution_step_websocket_updates(self, mock_channel_layer):
+        """Test that execution steps trigger WebSocket updates"""
+        mock_layer = MagicMock()
+        mock_channel_layer.return_value = mock_layer
+        
+        # Create running algorithm
         algo_order = AlgorithmicOrder.objects.create(
             user=self.user,
             exchange=self.sim_exchange,
@@ -707,22 +801,127 @@ class AlgorithmExecutionEngineTestCase(TestCase):
             status='RUNNING'
         )
         
-        # Test algorithm update broadcast
-        self.engine._broadcast_algorithm_update(algo_order, 'STARTED')
+        # Create execution record
+        execution = AlgorithmExecution.objects.create(
+            algo_order=algo_order,
+            execution_step=1,
+            scheduled_time=timezone.now(),
+            market_price=Decimal('150.00')
+        )
         
-        # Test execution update broadcast
+        # Mock market data and order submission
+        with patch.object(self.engine, '_get_market_data') as mock_market_data:
+            mock_market_data.return_value = {
+                'last_price': Decimal('150.50'),
+                'bid_price': Decimal('150.25'),
+                'ask_price': Decimal('150.75'),
+                'volume': 10000,
+                'spread_bps': Decimal('33.3')
+            }
+            
+            with patch.object(self.engine.order_service, 'submit_order') as mock_submit:
+                mock_submit.return_value = (True, 'Order submitted', [])
+                
+                # Process execution step
+                success = self.engine.process_algorithm_step(execution)
+                
+                # Should attempt to create child order
+                mock_submit.assert_called_once()
+                
+                # Verify execution update was broadcast
+                execution_calls = [call for call in mock_layer.group_send.call_args_list 
+                                 if 'execution_update' in str(call)]
+                self.assertTrue(len(execution_calls) > 0)
+
+    @patch('channels.layers.get_channel_layer')
+    def test_algorithm_rejection_websocket_notification(self, mock_channel_layer):
+        """Test WebSocket notification for algorithm rejection"""
+        mock_layer = MagicMock()
+        mock_channel_layer.return_value = mock_layer
+        
+        # Create algorithm that will be rejected
+        algo_order = AlgorithmicOrder.objects.create(
+            user=self.user,
+            exchange=self.sim_exchange,
+            instrument=self.instrument,
+            algorithm_type='TWAP',
+            side='BUY',
+            total_quantity=1000000,  # Very large order
+            start_time=timezone.now(),
+            end_time=timezone.now() + timedelta(hours=2)
+        )
+        
+        # Mock risk service to reject
+        with patch.object(self.engine.risk_service, 'validate_algorithmic_order') as mock_risk:
+            mock_risk.return_value = {
+                'approved': False,
+                'violations': ['Order size exceeds limit', 'Insufficient cash balance']
+            }
+            
+            # Attempt to start algorithm
+            success = self.engine.start_algorithm(algo_order)
+            self.assertFalse(success)
+            
+            # Verify rejection status
+            algo_order.refresh_from_db()
+            self.assertEqual(algo_order.status, 'REJECTED')
+            
+            # Verify no WebSocket broadcast for rejected algorithm
+            # (since rejection happens before status change to RUNNING)
+            self.assertEqual(mock_layer.group_send.call_count, 0)
+
+    def test_websocket_message_structure(self):
+        """Test the structure of WebSocket messages"""
+        algo_order = AlgorithmicOrder.objects.create(
+            user=self.user,
+            exchange=self.sim_exchange,
+            instrument=self.instrument,
+            algorithm_type='VWAP',
+            side='SELL',
+            total_quantity=500,
+            start_time=timezone.now(),
+            end_time=timezone.now() + timedelta(hours=1),
+            status='RUNNING'
+        )
+        
+        # Create execution record
         execution = AlgorithmExecution.objects.create(
             algo_order=algo_order,
             execution_step=1,
             scheduled_time=timezone.now(),
             executed_quantity=100,
-            market_price=Decimal("100.00")
+            market_price=Decimal('245.75')
         )
         
-        self.engine._broadcast_execution_update(execution)
-        
-        # Should have been called twice now
-        self.assertEqual(mock_group_send.call_count, 2)
+        # Test algorithm update message structure
+        with patch('channels.layers.get_channel_layer') as mock_channel_layer:
+            mock_layer = MagicMock()
+            mock_channel_layer.return_value = mock_layer
+            
+            self.engine._broadcast_algorithm_update(algo_order, 'STARTED')
+            
+            # Verify call was made
+            self.assertTrue(mock_layer.group_send.called)
+            
+            # Get the call arguments
+            call_args = mock_layer.group_send.call_args_list[0]
+            group_name = call_args[0][0]
+            message = call_args[0][1]
+            
+            # Verify message structure
+            self.assertIn(f'orders_{self.user.id}', group_name)
+            self.assertEqual(message['type'], 'algorithm_update')
+            self.assertIn('algorithm', message)
+            
+            algorithm_data = message['algorithm']
+            required_fields = [
+                'algo_order_id', 'algorithm_type', 'status', 'symbol',
+                'fill_ratio', 'total_quantity', 'executed_quantity',
+                'event_type', 'timestamp'
+            ]
+            
+            for field in required_fields:
+                self.assertIn(field, algorithm_data)
 
 
 class ParticipationRateAlgorithmTestCase(TestCase):
@@ -787,3 +986,23 @@ class ParticipationRateAlgorithmTestCase(TestCase):
         quantity = pov.calculate_execution_quantity(100, 60)
         expected = 100 * 0.20  # 20 shares
         self.assertEqual(quantity, int(expected))
+
+    def test_participation_rate_with_zero_market_volume(self):
+        """Test participation rate with zero market volume"""
+        algo_order = AlgorithmicOrder.objects.create(
+            user=self.user,
+            exchange=self.sim_exchange,
+            instrument=self.instrument,
+            algorithm_type='PARTICIPATION_RATE',
+            side='BUY',
+            total_quantity=1000,
+            start_time=timezone.now(),
+            end_time=timezone.now() + timedelta(hours=2),
+            participation_rate=Decimal('0.15')
+        )
+        
+        pov = ParticipationRateAlgorithm(algo_order)
+        
+        # Test with zero market volume
+        quantity = pov.calculate_execution_quantity(0, 60)
+        self.assertEqual(quantity, 0)

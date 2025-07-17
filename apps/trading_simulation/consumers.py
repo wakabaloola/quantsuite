@@ -50,11 +50,14 @@ class OrderUpdatesConsumer(AsyncWebsocketConsumer):
             }))
     
     async def send_initial_orders(self):
-        orders = await self.get_user_orders()
-        await self.send(text_data=json.dumps({
-            'type': 'initial_orders',
-            'orders': orders
-        }))
+        try:
+            orders = await self.get_user_orders()
+            await self.send(text_data=json.dumps({
+                'type': 'initial_orders',
+                'orders': orders
+            }))
+        except Exception as e:
+            await self.handle_error(f"Failed to fetch orders: {str(e)}", 'FETCH_ORDERS_ERROR')
     
     async def order_update(self, event):
         await self.send(text_data=json.dumps({
@@ -147,7 +150,6 @@ class OrderUpdatesConsumer(AsyncWebsocketConsumer):
                 'timestamp': order.order_timestamp.isoformat()
             } for order in orders]
         except Exception as e:
-            await self.handle_error(f"Failed to fetch orders: {str(e)}", 'FETCH_ORDERS_ERROR')
             return []
 
 
@@ -182,11 +184,17 @@ class PortfolioUpdatesConsumer(AsyncWebsocketConsumer):
             await self.send_initial_portfolio()
     
     async def send_initial_portfolio(self):
-        portfolio = await self.get_user_portfolio()
-        await self.send(text_data=json.dumps({
-            'type': 'initial_portfolio',
-            'portfolio': portfolio
-        }))
+        try:
+            portfolio = await self.get_user_portfolio()
+            if 'error' in portfolio:
+                await self.handle_error(f"Failed to fetch portfolio: {portfolio['error']}", 'FETCH_PORTFOLIO_ERROR')
+            else:
+                await self.send(text_data=json.dumps({
+                    'type': 'initial_portfolio',
+                    'portfolio': portfolio
+                }))
+        except Exception as e:
+            await self.handle_error(f"Failed to fetch portfolio: {str(e)}", 'FETCH_PORTFOLIO_ERROR')
     
     async def portfolio_update(self, event):
         await self.send(text_data=json.dumps({
@@ -251,7 +259,6 @@ class PortfolioUpdatesConsumer(AsyncWebsocketConsumer):
                 } for pos in positions]
             }
         except Exception as e:
-            await self.handle_error(f"Failed to fetch user portfolio: {str(e)}", 'FETCH_PORTFOLIO_ERROR')
             return {'error': str(e)}
 
 
@@ -285,11 +292,17 @@ class MarketDataConsumer(AsyncWebsocketConsumer):
             await self.send_initial_market_data()
     
     async def send_initial_market_data(self):
-        market_data = await self.get_market_data()
-        await self.send(text_data=json.dumps({
-            'type': 'initial_market_data',
-            'data': market_data
-        }))
+        try:
+            market_data = await self.get_market_data()
+            if 'error' in market_data:
+                await self.handle_error(f"Failed to fetch market data: {market_data['error']}", 'FETCH_MARKET_DATA_ERROR')
+            else:
+                await self.send(text_data=json.dumps({
+                    'type': 'initial_market_data',
+                    'data': market_data
+                }))
+        except Exception as e:
+            await self.handle_error(f"Failed to fetch market data: {str(e)}", 'FETCH_MARKET_DATA_ERROR')
     
     async def price_update(self, event):
         await self.send(text_data=json.dumps({
@@ -350,7 +363,6 @@ class MarketDataConsumer(AsyncWebsocketConsumer):
                 'timestamp': timezone.now().isoformat()
             }
         except Exception as e:
-            await self.handle_error(f"Failed to fetch market data: {str(e)}", 'FETCH_MARKET_DATA_ERROR')
             return {'error': str(e)}
 
 
@@ -472,11 +484,14 @@ class AlgorithmUpdatesConsumer(AsyncWebsocketConsumer):
             }))
     
     async def send_initial_algorithms(self):
-        algorithms = await self.get_user_algorithms()
-        await self.send(text_data=json.dumps({
-            'type': 'initial_algorithms',
-            'algorithms': algorithms
-        }))
+        try:
+            algorithms = await self.get_user_algorithms()
+            await self.send(text_data=json.dumps({
+                'type': 'initial_algorithms',
+                'algorithms': algorithms
+            }))
+        except Exception as e:
+            await self.handle_error(f"Failed to fetch algorithms: {str(e)}", 'FETCH_ALGORITHMS_ERROR')
     
     async def algorithm_update(self, event):
         await self.send(text_data=json.dumps(event))
@@ -535,5 +550,4 @@ class AlgorithmUpdatesConsumer(AsyncWebsocketConsumer):
                 'started_timestamp': algo.started_timestamp.isoformat() if algo.started_timestamp else None
             } for algo in algorithms]
         except Exception as e:
-            await self.handle_error(f"Failed to fetch user algorithms: {str(e)}", 'FETCH_USER_ALGORITHMS_ERROR')
             return []
