@@ -659,6 +659,7 @@ class AlgorithmExecutionEngine:
             
         except Exception as e:
             self.logger.error(f"Error calculating algorithm performance: {e}")
+
     
     def _broadcast_algorithm_update(self, algo_order: AlgorithmicOrder, event_type: str):
         """Broadcast algorithm updates via WebSocket"""
@@ -668,23 +669,55 @@ class AlgorithmExecutionEngine:
             
             channel_layer = get_channel_layer()
             if channel_layer:
+                # Prepare algorithm data
+                algorithm_data = {
+                    'algo_order_id': str(algo_order.algo_order_id),
+                    'algorithm_type': algo_order.algorithm_type,
+                    'status': algo_order.status,
+                    'symbol': algo_order.instrument.real_ticker.symbol,
+                    'fill_ratio': algo_order.fill_ratio,
+                    'total_quantity': algo_order.total_quantity,
+                    'executed_quantity': algo_order.executed_quantity,
+                    'event_type': event_type,
+                    'timestamp': timezone.now().isoformat()
+                }
+                
+                # Broadcast to multiple groups
+                user_id = str(algo_order.user.id)
+                
+                # Send to orders group
                 async_to_sync(channel_layer.group_send)(
-                    f'orders_{algo_order.user.id}',
+                    f'orders_{user_id}',
                     {
                         'type': 'algorithm_update',
-                        'algorithm': {
-                            'algo_order_id': str(algo_order.algo_order_id),
-                            'algorithm_type': algo_order.algorithm_type,
-                            'status': algo_order.status,
-                            'fill_ratio': algo_order.fill_ratio,
-                            'event_type': event_type,
-                            'timestamp': timezone.now().isoformat()
-                        }
+                        'algorithm': algorithm_data
                     }
                 )
+                
+                # Send to dedicated algorithms group
+                async_to_sync(channel_layer.group_send)(
+                    f'algorithms_{user_id}',
+                    {
+                        'type': 'algorithm_update',
+                        'algorithm': algorithm_data
+                    }
+                )
+                
+                # Send portfolio update if execution affects positions
+                if event_type in ['EXECUTION', 'COMPLETED']:
+                    async_to_sync(channel_layer.group_send)(
+                        f'portfolio_{user_id}',
+                        {
+                            'type': 'portfolio_update',
+                            'triggered_by': 'algorithm_execution',
+                            'algorithm_id': str(algo_order.algo_order_id)
+                        }
+                    )
+                    
         except Exception as e:
             self.logger.error(f"Error broadcasting algorithm update: {e}")
     
+
     def _broadcast_execution_update(self, execution: AlgorithmExecution):
         """Broadcast execution updates via WebSocket"""
         try:

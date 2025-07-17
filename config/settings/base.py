@@ -295,6 +295,9 @@ WEBSOCKET_SETTINGS = {
     'MAX_CONNECTIONS_PER_USER': 5,
     'RATE_LIMIT_PER_MINUTE': 100,
     'ENABLE_COMPRESSION': True,
+    'ALGORITHM_UPDATE_BATCHING': True,  # Batch algorithm updates
+    'MAX_MESSAGE_SIZE': 1024 * 1024,    # 1MB max message size
+    'CONNECTION_TIMEOUT': 300,           # 5 minutes timeout
 }
 
 # External API Configuration
