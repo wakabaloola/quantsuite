@@ -272,6 +272,19 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'apps.trading_simulation.tasks.health_check_simulation_system',
         'schedule': crontab(minute='*/15'),
     },
+
+    # Algorithm market data sync every 30 seconds
+    'sync-algorithm-market-data': {
+        'task': 'apps.order_management.tasks.sync_algorithm_market_data',
+        'schedule': 30.0,
+        'options': {'expires': 25}
+    },
+
+    # Update technical indicators for algorithms every 5 minutes
+    'update-algorithm-indicators': {
+        'task': 'apps.order_management.tasks.update_algorithm_technical_indicators',
+        'schedule': crontab(minute='*/5'),
+    },
 }
 
 

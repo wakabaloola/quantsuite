@@ -352,6 +352,52 @@ class SniperAlgorithm:
             self.logger.error(f"Error checking sniper execution conditions: {e}")
             return False
 
+    def should_execute_with_indicators(self, market_data: Dict) -> bool:
+        """Enhanced execution logic using technical indicators"""
+        try:
+            # First check basic conditions
+            if not self.should_execute(market_data):
+                return False
+            
+            # Get technical indicators from enhanced market data
+            indicators = market_data.get('technical_indicators', {})
+            params = self.algo_order.algorithm_parameters
+            
+            # RSI-based execution (if enabled)
+            if params.get('use_rsi_trigger', False):
+                rsi_data = indicators.get('rsi')
+                if rsi_data and rsi_data['value']:
+                    rsi_value = rsi_data['value']
+                    rsi_threshold = params.get('rsi_threshold', 50)
+                    
+                    if self.algo_order.side == "BUY" and rsi_value > rsi_threshold:
+                        self.logger.debug(f"RSI trigger failed: {rsi_value} > {rsi_threshold} for BUY")
+                        return False
+                    elif self.algo_order.side == "SELL" and rsi_value < rsi_threshold:
+                        self.logger.debug(f"RSI trigger failed: {rsi_value} < {rsi_threshold} for SELL")
+                        return False
+            
+            # MACD-based execution (if enabled)
+            if params.get('use_macd_trigger', False):
+                macd_data = indicators.get('macd')
+                if macd_data and macd_data['value']:
+                    macd_signal = macd_data['value'].get('signal', 'neutral')
+                    
+                    if self.algo_order.side == "BUY" and macd_signal != 'bullish':
+                        self.logger.debug(f"MACD trigger failed: {macd_signal} signal for BUY")
+                        return False
+                    elif self.algo_order.side == "SELL" and macd_signal != 'bearish':
+                        self.logger.debug(f"MACD trigger failed: {macd_signal} signal for SELL")
+                        return False
+            
+            self.logger.info("All technical indicator conditions met for execution")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error checking indicator-based execution: {e}")
+            # Fallback to basic execution logic
+            return self.should_execute(market_data)
+
 
 class ParticipationRateAlgorithm:
     """
@@ -461,7 +507,7 @@ class AlgorithmExecutionEngine:
         """Process a single execution step"""
         try:
             # Get current market data
-            market_data = self._get_market_data(execution.algo_order.instrument)
+            market_data = self._get_enhanced_market_data(execution.algo_order.instrument)
             
             # Algorithm-specific execution logic
             if execution.algo_order.algorithm_type == 'SNIPER':
@@ -543,6 +589,63 @@ class AlgorithmExecutionEngine:
         except Exception as e:
             self.logger.error(f"Error getting market data: {e}")
             return {}
+
+    def _get_enhanced_market_data(self, instrument: SimulatedInstrument) -> Dict:
+        """Get enhanced market data from market_data app integration"""
+        try:
+            from apps.market_data.services import YFinanceService
+            from apps.market_data.models import MarketData, TechnicalIndicator
+            
+            # Get real-time data from market data service
+            yfinance_service = YFinanceService()
+            real_time_quote = yfinance_service.get_real_time_quote(instrument.real_ticker.symbol)
+            
+            # Get latest stored market data
+            latest_market_data = MarketData.objects.filter(
+                ticker=instrument.real_ticker,
+                timeframe='1d'
+            ).latest('timestamp')
+            
+            # Get technical indicators for algorithm decision making
+            latest_indicators = TechnicalIndicator.objects.filter(
+                ticker=instrument.real_ticker,
+                timeframe='1d'
+            ).order_by('-timestamp')[:5]
+            
+            # Build enhanced market data
+            enhanced_data = {
+                'last_price': real_time_quote.get('price') if real_time_quote else latest_market_data.close,
+                'bid_price': real_time_quote.get('bid') if real_time_quote else latest_market_data.close * Decimal('0.999'),
+                'ask_price': real_time_quote.get('ask') if real_time_quote else latest_market_data.close * Decimal('1.001'),
+                'volume': real_time_quote.get('volume') if real_time_quote else latest_market_data.volume,
+                'market_status': real_time_quote.get('market_status', 'closed') if real_time_quote else 'closed',
+                
+                # Technical indicators for algorithm intelligence
+                'technical_indicators': {},
+                'volatility_24h': float(latest_market_data.high - latest_market_data.low) / float(latest_market_data.close),
+                'data_source': 'market_data_integration',
+                'timestamp': timezone.now()
+            }
+            
+            # Add technical indicators
+            for indicator in latest_indicators:
+                enhanced_data['technical_indicators'][indicator.indicator_name] = {
+                    'value': float(indicator.value) if indicator.value else None,
+                    'timestamp': indicator.timestamp
+                }
+            
+            # Calculate enhanced spread in basis points
+            if enhanced_data['bid_price'] and enhanced_data['ask_price']:
+                spread = enhanced_data['ask_price'] - enhanced_data['bid_price']
+                mid_price = (enhanced_data['bid_price'] + enhanced_data['ask_price']) / 2
+                enhanced_data['spread_bps'] = (spread / mid_price) * 10000 if mid_price > 0 else Decimal('0')
+            
+            return enhanced_data
+            
+        except Exception as e:
+            self.logger.error(f"Error getting enhanced market data: {e}")
+            # Fallback to original method
+            return self._get_market_data(instrument)
     
     def _calculate_execution_price(self, execution: AlgorithmExecution, 
                                  market_data: Dict) -> Decimal:

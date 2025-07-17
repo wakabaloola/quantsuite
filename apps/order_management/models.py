@@ -600,6 +600,21 @@ class AlgorithmicOrder(BaseModel):
             return int((self.end_time - self.start_time).total_seconds() / 60)
         return 0
 
+    def get_market_data_config(self):
+        """Get market data configuration for this algorithm"""
+        return {
+            'real_time_pricing': True,
+            'technical_indicators': self.algorithm_parameters.get('technical_indicators', ['rsi', 'macd']),
+            'market_data_frequency': self.algorithm_parameters.get('market_data_frequency', '1min'),
+            'price_precision': self.algorithm_parameters.get('price_precision', 6),
+            'volume_analysis': self.algorithm_parameters.get('volume_analysis', True),
+            'volatility_monitoring': self.algorithm_parameters.get('volatility_monitoring', True)
+        }
+
+    def should_use_enhanced_pricing(self):
+        """Determine if algorithm should use enhanced market data pricing"""
+        return self.algorithm_type in ['SNIPER', 'VWAP', 'PARTICIPATION_RATE']
+
 
 class AlgorithmExecution(BaseModel):
     """

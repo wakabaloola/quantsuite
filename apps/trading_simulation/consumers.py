@@ -263,107 +263,174 @@ class PortfolioUpdatesConsumer(AsyncWebsocketConsumer):
 
 
 class MarketDataConsumer(AsyncWebsocketConsumer):
+    """Enhanced WebSocket consumer for real-time market data with algorithm integration"""
+
     async def connect(self):
         self.symbol = self.scope['url_route']['kwargs']['symbol']
         self.market_group_name = f'market_{self.symbol}'
-        
+
+        # Join market data group
         await self.channel_layer.group_add(
             self.market_group_name,
             self.channel_name
         )
-        
+
         await self.accept()
+
+        # Send initial market data from market_data app
         await self.send_initial_market_data()
-    
-        await self.start_heartbeat() # Start heartbeat
 
     async def disconnect(self, close_code):
-        await self.stop_heartbeat() # Stop heartbeat
+        # Leave market data group
         await self.channel_layer.group_discard(
             self.market_group_name,
             self.channel_name
         )
-    
+
     async def receive(self, text_data):
-        data = json.loads(text_data)
-        message_type = data.get('type')
-        
-        if message_type == 'subscribe_market':
-            await self.send_initial_market_data()
-    
+        try:
+            data = json.loads(text_data)
+
+            if data.get('type') == 'subscribe_indicators':
+                # Subscribe to technical indicators updates
+                indicators = data.get('indicators', ['rsi', 'macd'])
+                await self.subscribe_to_indicators(indicators)
+
+            elif data.get('type') == 'request_algorithm_data':
+                # Send algorithm-specific market data
+                await self.send_algorithm_market_data()
+
+        except json.JSONDecodeError:
+            await self.send_error("Invalid JSON")
+
     async def send_initial_market_data(self):
+        """Send initial market data from market_data app"""
         try:
-            market_data = await self.get_market_data()
-            if 'error' in market_data:
-                await self.handle_error(f"Failed to fetch market data: {market_data['error']}", 'FETCH_MARKET_DATA_ERROR')
-            else:
-                await self.send(text_data=json.dumps({
-                    'type': 'initial_market_data',
-                    'data': market_data
-                }))
-        except Exception as e:
-            await self.handle_error(f"Failed to fetch market data: {str(e)}", 'FETCH_MARKET_DATA_ERROR')
-    
-    async def price_update(self, event):
-        await self.send(text_data=json.dumps({
-            'type': 'price_update',
-            'data': event['data']
-        }))
-    
-    async def orderbook_update(self, event):
-        await self.send(text_data=json.dumps({
-            'type': 'orderbook_update',
-            'data': event['data']
-        }))
-    
-    async def start_heartbeat(self):
-        """Start heartbeat task"""
-        self.heartbeat_task = asyncio.create_task(self.heartbeat_loop())
+            from apps.market_data.models import MarketData, TechnicalIndicator
+            from apps.market_data.services import YFinanceService
+            from apps.trading_simulation.models import SimulatedInstrument
+            from asgiref.sync import sync_to_async
 
-    async def stop_heartbeat(self):
-        """Stop heartbeat task"""
-        if hasattr(self, 'heartbeat_task'):
-            self.heartbeat_task.cancel()
-
-    async def heartbeat_loop(self):
-        """Send periodic heartbeat"""
-        try:
-            while True:
-                await asyncio.sleep(30)  # 30 second heartbeat
-                await self.send(text_data=json.dumps({
-                    'type': 'heartbeat',
-                    'timestamp': timezone.now().isoformat()
-                }))
-        except asyncio.CancelledError:
-            pass
-
-    async def handle_error(self, error_message: str, error_code: str = 'GENERAL_ERROR'):
-        """Send error message to client"""
-        await self.send(text_data=json.dumps({
-            'type': 'error',
-            'error_code': error_code,
-            'message': error_message,
-            'timestamp': timezone.now().isoformat()
-        }))
-
-    @database_sync_to_async
-    def get_market_data(self):
-        try:
-            instrument = SimulatedInstrument.objects.get(
+            # Get ticker from symbol
+            instrument = await sync_to_async(SimulatedInstrument.objects.select_related('real_ticker').get)(
                 real_ticker__symbol=self.symbol
             )
-            order_book = instrument.order_book
-            
-            return {
+
+            # Get real-time quote
+            yfinance_service = YFinanceService()
+            real_time_data = await sync_to_async(yfinance_service.get_real_time_quote)(self.symbol)
+
+            # Get latest technical indicators
+            latest_indicators = await sync_to_async(list)(
+                TechnicalIndicator.objects.filter(
+                    ticker=instrument.real_ticker,
+                    timeframe='1d'
+                ).order_by('-timestamp')[:10]
+            )
+
+            # Build comprehensive market data
+            market_data = {
+                'type': 'market_data_update',
                 'symbol': self.symbol,
-                'last_price': float(order_book.last_trade_price) if order_book.last_trade_price else None,
-                'bid_price': float(order_book.best_bid_price) if order_book.best_bid_price else None,
-                'ask_price': float(order_book.best_ask_price) if order_book.best_ask_price else None,
-                'volume': order_book.daily_volume,
-                'timestamp': timezone.now().isoformat()
+                'timestamp': timezone.now().isoformat(),
+                'real_time_data': real_time_data,
+                'technical_indicators': [
+                    {
+                        'name': indicator.indicator_name,
+                        'value': float(indicator.value) if indicator.value else None,
+                        'timestamp': indicator.timestamp.isoformat()
+                    }
+                    for indicator in latest_indicators
+                ],
+                'algorithm_metrics': {
+                    'volatility_score': await self.calculate_volatility_score(instrument),
+                    'liquidity_score': await self.calculate_liquidity_score(instrument),
+                    'execution_favorability': await self.calculate_execution_favorability(instrument)
+                }
             }
+
+            await self.send(text_data=json.dumps(market_data))
+
         except Exception as e:
-            return {'error': str(e)}
+            await self.send_error(f"Failed to load initial market data: {str(e)}")
+
+    async def calculate_volatility_score(self, instrument):
+        """Calculate volatility score for algorithm execution"""
+        try:
+            from apps.market_data.models import MarketData
+            from asgiref.sync import sync_to_async
+
+            # Get recent price data
+            recent_data = await sync_to_async(list)(
+                MarketData.objects.filter(
+                    ticker=instrument.real_ticker,
+                    timeframe='1d'
+                ).order_by('-timestamp')[:20]
+            )
+
+            if len(recent_data) < 10:
+                return 0.5  # Neutral score
+
+            # Calculate volatility (simplified)
+            prices = [float(data.close) for data in recent_data]
+            import statistics
+            volatility = statistics.stdev(prices) / statistics.mean(prices)
+
+            # Normalize to 0-1 scale
+            return min(volatility * 10, 1.0)
+
+        except Exception:
+            return 0.5
+
+    async def calculate_liquidity_score(self, instrument):
+        """Calculate liquidity score for algorithm execution"""
+        try:
+            # Use order book data from simulation
+            order_book = instrument.order_book
+
+            # Calculate bid-ask spread as liquidity proxy
+            if order_book.best_bid_price and order_book.best_ask_price:
+                spread = float(order_book.best_ask_price - order_book.best_bid_price)
+                mid_price = float(order_book.best_bid_price + order_book.best_ask_price) / 2
+                spread_pct = spread / mid_price if mid_price > 0 else 1.0
+
+                # Lower spread = higher liquidity score
+                return max(0, 1.0 - (spread_pct * 100))
+
+            return 0.5  # Neutral score
+
+        except Exception:
+            return 0.5
+
+    async def calculate_execution_favorability(self, instrument):
+        """Calculate overall execution favorability score"""
+        try:
+            volatility_score = await self.calculate_volatility_score(instrument)
+            liquidity_score = await self.calculate_liquidity_score(instrument)
+
+            # Combine scores (lower volatility + higher liquidity = better execution)
+            favorability = (liquidity_score + (1.0 - volatility_score)) / 2
+            return favorability
+
+        except Exception:
+            return 0.5
+
+    # WebSocket message handlers
+    async def market_data_update(self, event):
+        """Handle market data updates"""
+        await self.send(text_data=json.dumps(event))
+
+    async def algorithm_market_update(self, event):
+        """Handle algorithm-specific market updates"""
+        await self.send(text_data=json.dumps(event))
+
+    async def send_error(self, message):
+        """Send error message"""
+        await self.send(text_data=json.dumps({
+            'type': 'error',
+            'message': message,
+            'timestamp': timezone.now().isoformat()
+        }))
 
 
 class RiskAlertsConsumer(AsyncWebsocketConsumer):
