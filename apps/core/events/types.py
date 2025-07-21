@@ -90,6 +90,76 @@ class AlgorithmTriggeredEvent(BaseEvent):
             self.market_conditions = {}
 
 
+@dataclass
+class AlgorithmExecutionStartedEvent(BaseEvent):
+    """Algorithm execution started event"""
+    algo_order_id: str = ""
+    algorithm_type: str = ""
+    total_quantity: int = 0
+    estimated_duration_minutes: int = 0
+    execution_parameters: Dict[str, Any] = None
+    
+    def __post_init__(self):
+        super().__post_init__()
+        self.event_type = "algorithm.execution.started"
+        self.priority = EventPriority.HIGH
+        if self.execution_parameters is None:
+            self.execution_parameters = {}
+
+
+@dataclass  
+class AlgorithmExecutionProgressEvent(BaseEvent):
+    """Algorithm execution progress event"""
+    algo_order_id: str = ""
+    execution_step: int = 0
+    total_steps: int = 0
+    executed_quantity: int = 0
+    remaining_quantity: int = 0
+    average_execution_price: Optional[Decimal] = None
+    current_slippage_bps: float = 0.0
+    estimated_completion_time: Optional[datetime] = None
+    
+    def __post_init__(self):
+        super().__post_init__()
+        self.event_type = "algorithm.execution.progress"
+        self.priority = EventPriority.HIGH
+
+
+@dataclass
+class AlgorithmExecutionCompletedEvent(BaseEvent):
+    """Algorithm execution completed event"""
+    algo_order_id: str = ""
+    final_status: str = ""  # 'COMPLETED', 'CANCELLED', 'FAILED'
+    total_executed_quantity: int = 0
+    average_execution_price: Optional[Decimal] = None
+    total_slippage_bps: float = 0.0
+    implementation_shortfall: Optional[float] = None
+    execution_duration_minutes: int = 0
+    performance_metrics: Dict[str, Any] = None
+    
+    def __post_init__(self):
+        super().__post_init__()
+        self.event_type = "algorithm.execution.completed"
+        self.priority = EventPriority.HIGH
+        if self.performance_metrics is None:
+            self.performance_metrics = {}
+
+
+@dataclass
+class AlgorithmExecutionErrorEvent(BaseEvent):
+    """Algorithm execution error event"""
+    algo_order_id: str = ""
+    error_type: str = ""
+    error_message: str = ""
+    execution_step: int = 0
+    recovery_action: str = ""
+    
+    def __post_init__(self):
+        super().__post_init__()
+        self.event_type = "algorithm.execution.error"
+        self.priority = EventPriority.CRITICAL
+
+
 # Risk Management Events
 @dataclass
 class RiskAlertEvent(BaseEvent):

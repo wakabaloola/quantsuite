@@ -74,3 +74,89 @@ async def publish_algorithm_trigger(algo_order_id: str, algorithm_type: str,
     )
     
     return await event_bus.publish(event, broadcast_websocket=True, queue_celery=True)
+
+
+async def publish_algorithm_execution_started(algo_order_id: str, algorithm_type: str,
+                                            total_quantity: int, estimated_duration_minutes: int,
+                                            execution_parameters: Dict[str, Any], user_id: int):
+    """Publish algorithm execution started event"""
+    from .types import AlgorithmExecutionStartedEvent
+
+    event = AlgorithmExecutionStartedEvent(
+        algo_order_id=algo_order_id,
+        algorithm_type=algorithm_type,
+        total_quantity=total_quantity,
+        estimated_duration_minutes=estimated_duration_minutes,
+        execution_parameters=execution_parameters,
+        user_id=user_id,
+        source_service="order_management"
+    )
+
+    return await event_bus.publish(event, broadcast_websocket=True)
+
+
+async def publish_algorithm_execution_progress(algo_order_id: str, execution_step: int,
+                                             total_steps: int, executed_quantity: int,
+                                             remaining_quantity: int, average_execution_price: Optional[Decimal],
+                                             current_slippage_bps: float, estimated_completion_time: Optional[datetime],
+                                             user_id: int):
+    """Publish algorithm execution progress event"""
+    from .types import AlgorithmExecutionProgressEvent
+
+    event = AlgorithmExecutionProgressEvent(
+        algo_order_id=algo_order_id,
+        execution_step=execution_step,
+        total_steps=total_steps,
+        executed_quantity=executed_quantity,
+        remaining_quantity=remaining_quantity,
+        average_execution_price=average_execution_price,
+        current_slippage_bps=current_slippage_bps,
+        estimated_completion_time=estimated_completion_time,
+        user_id=user_id,
+        source_service="order_management"
+    )
+
+    return await event_bus.publish(event, broadcast_websocket=True)
+
+
+async def publish_algorithm_execution_completed(algo_order_id: str, final_status: str,
+                                              total_executed_quantity: int, average_execution_price: Optional[Decimal],
+                                              total_slippage_bps: float, implementation_shortfall: Optional[float],
+                                              execution_duration_minutes: int, performance_metrics: Dict[str, Any],
+                                              user_id: int):
+    """Publish algorithm execution completed event"""
+    from .types import AlgorithmExecutionCompletedEvent
+
+    event = AlgorithmExecutionCompletedEvent(
+        algo_order_id=algo_order_id,
+        final_status=final_status,
+        total_executed_quantity=total_executed_quantity,
+        average_execution_price=average_execution_price,
+        total_slippage_bps=total_slippage_bps,
+        implementation_shortfall=implementation_shortfall,
+        execution_duration_minutes=execution_duration_minutes,
+        performance_metrics=performance_metrics,
+        user_id=user_id,
+        source_service="order_management"
+    )
+
+    return await event_bus.publish(event, broadcast_websocket=True)
+
+
+async def publish_algorithm_execution_error(algo_order_id: str, error_type: str,
+                                          error_message: str, execution_step: int,
+                                          recovery_action: str, user_id: int):
+    """Publish algorithm execution error event"""
+    from .types import AlgorithmExecutionErrorEvent
+
+    event = AlgorithmExecutionErrorEvent(
+        algo_order_id=algo_order_id,
+        error_type=error_type,
+        error_message=error_message,
+        execution_step=execution_step,
+        recovery_action=recovery_action,
+        user_id=user_id,
+        source_service="order_management"
+    )
+
+    return await event_bus.publish(event, broadcast_websocket=True)

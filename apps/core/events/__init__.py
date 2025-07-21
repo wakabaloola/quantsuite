@@ -17,7 +17,14 @@ from .types import (
 
 from .utils import (
     publish_market_data_update, publish_technical_signal, 
-    publish_algorithm_trigger
+    publish_algorithm_trigger,
+    publish_market_data_update,
+    publish_technical_signal, 
+    publish_algorithm_trigger,
+    publish_algorithm_execution_started,
+    publish_algorithm_execution_progress,
+    publish_algorithm_execution_completed,
+    publish_algorithm_execution_error
 )
 
 __all__ = [

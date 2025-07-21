@@ -15,4 +15,7 @@ websocket_urlpatterns = [
     # Technical signals WebSocket
     re_path(r'ws/signals/(?P<symbol>\w+)/$', consumers.TechnicalSignalsConsumer.as_asgi()),
     re_path(r'ws/signals/$', consumers.TechnicalSignalsConsumer.as_asgi()),
+
+    # Algorithm execution WebSocket
+    re_path(r'ws/algorithms/(?P<user_id>\w+)/$', consumers.AlgorithmExecutionConsumer.as_asgi()),
 ]

@@ -459,3 +459,245 @@ class TechnicalSignalsConsumer(AsyncWebsocketConsumer):
             'type': 'technical_signal',
             'signal': event['signal']
         }))
+
+
+class AlgorithmExecutionConsumer(AsyncWebsocketConsumer):
+    """Real-time algorithm execution status and progress consumer"""
+    
+    async def connect(self):
+        self.user_id = self.scope['url_route']['kwargs']['user_id']
+        self.algo_group_name = f'algorithm_execution_{self.user_id}'
+        
+        # Join user-specific algorithm execution group
+        await self.channel_layer.group_add(
+            self.algo_group_name,
+            self.channel_name
+        )
+        
+        await self.accept()
+        
+        # Send initial algorithm status
+        await self.send_initial_algorithm_status()
+    
+    async def disconnect(self, close_code):
+        await self.channel_layer.group_discard(
+            self.algo_group_name,
+            self.channel_name
+        )
+    
+    async def receive(self, text_data):
+        data = json.loads(text_data)
+        message_type = data.get('type')
+        
+        if message_type == 'subscribe_algorithms':
+            await self.send_initial_algorithm_status()
+        elif message_type == 'get_algorithm_details':
+            algo_order_id = data.get('algo_order_id')
+            if algo_order_id:
+                await self.send_algorithm_details(algo_order_id)
+        elif message_type == 'pause_algorithm':
+            algo_order_id = data.get('algo_order_id')
+            if algo_order_id:
+                await self.handle_algorithm_control(algo_order_id, 'PAUSE')
+        elif message_type == 'resume_algorithm':
+            algo_order_id = data.get('algo_order_id')
+            if algo_order_id:
+                await self.handle_algorithm_control(algo_order_id, 'RESUME')
+        elif message_type == 'cancel_algorithm':
+            algo_order_id = data.get('algo_order_id')
+            if algo_order_id:
+                await self.handle_algorithm_control(algo_order_id, 'CANCEL')
+        elif message_type == 'heartbeat':
+            await self.send(text_data=json.dumps({
+                'type': 'heartbeat_response',
+                'timestamp': timezone.now().isoformat()
+            }))
+    
+    async def send_initial_algorithm_status(self):
+        """Send current status of all user's active algorithms"""
+        algorithms = await self.get_user_active_algorithms()
+        await self.send(text_data=json.dumps({
+            'type': 'initial_algorithm_status',
+            'algorithms': algorithms,
+            'timestamp': timezone.now().isoformat()
+        }))
+    
+    async def send_algorithm_details(self, algo_order_id: str):
+        """Send detailed information about a specific algorithm"""
+        details = await self.get_algorithm_details(algo_order_id)
+        await self.send(text_data=json.dumps({
+            'type': 'algorithm_details',
+            'algo_order_id': algo_order_id,
+            'details': details,
+            'timestamp': timezone.now().isoformat()
+        }))
+    
+    async def handle_algorithm_control(self, algo_order_id: str, action: str):
+        """Handle algorithm control actions (pause, resume, cancel)"""
+        try:
+            success = await self.execute_algorithm_control(algo_order_id, action)
+            await self.send(text_data=json.dumps({
+                'type': 'algorithm_control_response',
+                'algo_order_id': algo_order_id,
+                'action': action,
+                'success': success,
+                'timestamp': timezone.now().isoformat()
+            }))
+        except Exception as e:
+            await self.send(text_data=json.dumps({
+                'type': 'algorithm_control_error',
+                'algo_order_id': algo_order_id,
+                'action': action,
+                'error': str(e),
+                'timestamp': timezone.now().isoformat()
+            }))
+    
+    # Event handlers for algorithm execution events
+    async def algorithm_execution_started(self, event):
+        """Handle algorithm execution started event"""
+        await self.send(text_data=json.dumps({
+            'type': 'algorithm_started',
+            'data': event['data'],
+            'timestamp': timezone.now().isoformat()
+        }))
+    
+    async def algorithm_execution_progress(self, event):
+        """Handle algorithm execution progress event"""
+        await self.send(text_data=json.dumps({
+            'type': 'algorithm_progress',
+            'data': event['data'],
+            'timestamp': timezone.now().isoformat()
+        }))
+    
+    async def algorithm_execution_completed(self, event):
+        """Handle algorithm execution completed event"""
+        await self.send(text_data=json.dumps({
+            'type': 'algorithm_completed',
+            'data': event['data'],
+            'timestamp': timezone.now().isoformat()
+        }))
+    
+    async def algorithm_execution_error(self, event):
+        """Handle algorithm execution error event"""
+        await self.send(text_data=json.dumps({
+            'type': 'algorithm_error',
+            'data': event['data'],
+            'timestamp': timezone.now().isoformat()
+        }))
+    
+    async def event_message(self, event):
+        """Handle events from event bus"""
+        await self.send(text_data=json.dumps({
+            'type': 'event',
+            'data': event['event'],
+            'timestamp': timezone.now().isoformat()
+        }))
+    
+    @database_sync_to_async
+    def get_user_active_algorithms(self):
+        """Get all active algorithms for the user"""
+        try:
+            from apps.order_management.models import AlgorithmicOrder
+            
+            user = User.objects.get(id=self.user_id)
+            algorithms = user.algorithmic_orders.filter(
+                status__in=['PENDING', 'RUNNING', 'PAUSED']
+            ).order_by('-created_timestamp')[:20]
+            
+            return [{
+                'algo_order_id': str(algo.algo_order_id),
+                'algorithm_type': algo.algorithm_type,
+                'symbol': algo.instrument.real_ticker.symbol,
+                'side': algo.side,
+                'total_quantity': algo.total_quantity,
+                'executed_quantity': algo.executed_quantity,
+                'remaining_quantity': algo.remaining_quantity,
+                'status': algo.status,
+                'progress_percentage': algo.fill_ratio,
+                'average_execution_price': float(algo.average_execution_price) if algo.average_execution_price else None,
+                'created_timestamp': algo.created_timestamp.isoformat(),
+                'started_timestamp': algo.started_timestamp.isoformat() if algo.started_timestamp else None,
+                'estimated_completion': algo.end_time.isoformat() if algo.end_time else None
+            } for algo in algorithms]
+            
+        except Exception as e:
+            logger.error(f"Error getting user algorithms: {e}")
+            return []
+    
+    @database_sync_to_async
+    def get_algorithm_details(self, algo_order_id: str):
+        """Get detailed information about a specific algorithm"""
+        try:
+            from apps.order_management.models import AlgorithmicOrder, AlgorithmExecution
+            
+            algo = AlgorithmicOrder.objects.get(
+                algo_order_id=algo_order_id,
+                user_id=self.user_id
+            )
+            
+            # Get execution history
+            executions = algo.executions.order_by('execution_step')[:50]
+            
+            return {
+                'algo_order_id': str(algo.algo_order_id),
+                'algorithm_type': algo.algorithm_type,
+                'symbol': algo.instrument.real_ticker.symbol,
+                'side': algo.side,
+                'total_quantity': algo.total_quantity,
+                'executed_quantity': algo.executed_quantity,
+                'remaining_quantity': algo.remaining_quantity,
+                'status': algo.status,
+                'progress_percentage': algo.fill_ratio,
+                'average_execution_price': float(algo.average_execution_price) if algo.average_execution_price else None,
+                'total_slippage': float(algo.total_slippage),
+                'implementation_shortfall': float(algo.implementation_shortfall) if algo.implementation_shortfall else None,
+                'algorithm_parameters': algo.algorithm_parameters,
+                'start_time': algo.start_time.isoformat(),
+                'end_time': algo.end_time.isoformat(),
+                'created_timestamp': algo.created_timestamp.isoformat(),
+                'executions': [{
+                    'step': exec.execution_step,
+                    'executed_quantity': exec.executed_quantity,
+                    'execution_price': float(exec.execution_price) if exec.execution_price else None,
+                    'market_price': float(exec.market_price),
+                    'slippage_bps': float(exec.slippage_bps),
+                    'scheduled_time': exec.scheduled_time.isoformat(),
+                    'execution_time': exec.execution_time.isoformat() if exec.execution_time else None
+                } for exec in executions]
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting algorithm details for {algo_order_id}: {e}")
+            return {'error': str(e)}
+    
+    @database_sync_to_async
+    def execute_algorithm_control(self, algo_order_id: str, action: str) -> bool:
+        """Execute algorithm control action"""
+        try:
+            from apps.order_management.models import AlgorithmicOrder
+            
+            algo = AlgorithmicOrder.objects.get(
+                algo_order_id=algo_order_id,
+                user_id=self.user_id
+            )
+            
+            if action == 'PAUSE' and algo.status == 'RUNNING':
+                algo.status = 'PAUSED'
+                algo.save()
+                return True
+            elif action == 'RESUME' and algo.status == 'PAUSED':
+                algo.status = 'RUNNING'
+                algo.save()
+                return True
+            elif action == 'CANCEL' and algo.status in ['PENDING', 'RUNNING', 'PAUSED']:
+                algo.status = 'CANCELLED'
+                algo.completed_timestamp = timezone.now()
+                algo.save()
+                return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error executing algorithm control {action} for {algo_order_id}: {e}")
+            return False
+

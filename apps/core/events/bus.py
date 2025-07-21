@@ -383,16 +383,26 @@ class EventBus:
                 f'portfolio_{event.user_id}',
                 f'risk_{event.user_id}'
             ])
+            
+            # Algorithm execution events
+            if event.event_type.startswith('algorithm.execution'):
+                groups.append(f'algorithm_execution_{event.user_id}')
         
         # Market data events - broadcast to symbol groups
         if hasattr(event, 'symbol'):
             groups.append(f'market_{event.symbol}')
+        
+        # Algorithm-specific events
+        if hasattr(event, 'algo_order_id'):
+            groups.append(f'algorithm_{event.algo_order_id}')
         
         # Global events
         if event.event_type.startswith('market_data'):
             groups.append('market_data_global')
         elif event.event_type.startswith('risk'):
             groups.append('risk_alerts_global')
+        elif event.event_type.startswith('algorithm'):
+            groups.append('algorithms_global')
         
         return groups
     
