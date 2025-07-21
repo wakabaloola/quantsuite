@@ -204,6 +204,7 @@ CELERY_TASK_ROUTES = {
     'apps.market_data.tasks.calculate_technical_indicators_*': {'queue': 'analytics'},
     'apps.market_data.tasks.update_portfolio_analytics': {'queue': 'portfolio'},
     'apps.market_data.tasks.cleanup_old_data': {'queue': 'maintenance'},
+    'apps.core.tasks.process_event': {'queue': 'events'},
 }
 
 CELERY_TASK_ANNOTATIONS = {

@@ -1,3 +1,4 @@
+# apps/trading_simulation/consumers.py
 import json
 import asyncio
 from channels.generic.websocket import AsyncWebsocketConsumer
@@ -7,6 +8,7 @@ from django.utils import timezone
 from .models import SimulatedInstrument, UserSimulationProfile
 from apps.order_management.models import SimulatedOrder
 from apps.risk_management.models import SimulatedPosition
+from apps.core.events import event_bus
 
 User = get_user_model()
 
@@ -62,6 +64,13 @@ class OrderUpdatesConsumer(AsyncWebsocketConsumer):
             'type': 'order_filled',
             'order': event['order'],
             'fill_details': event['fill_details']
+        }))
+
+    async def event_message(self, event):
+        """Handle events from event bus"""
+        await self.send(text_data=json.dumps({
+            'type': 'event',
+            'data': event['event']
         }))
     
     @database_sync_to_async
@@ -128,6 +137,13 @@ class PortfolioUpdatesConsumer(AsyncWebsocketConsumer):
         await self.send(text_data=json.dumps({
             'type': 'position_update',
             'position': event['position']
+        }))
+
+    async def event_message(self, event):
+        """Handle events from event bus"""
+        await self.send(text_data=json.dumps({
+            'type': 'event',
+            'data': event['event']
         }))
     
     @database_sync_to_async
@@ -198,6 +214,13 @@ class MarketDataConsumer(AsyncWebsocketConsumer):
             'data': event['data']
         }))
     
+    async def event_message(self, event):
+        """Handle events from event bus"""
+        await self.send(text_data=json.dumps({
+            'type': 'event',
+            'data': event['event']
+        }))
+
     @database_sync_to_async
     def get_market_data(self):
         try:
@@ -245,4 +268,11 @@ class RiskAlertsConsumer(AsyncWebsocketConsumer):
         await self.send(text_data=json.dumps({
             'type': 'compliance_alert',
             'alert': event['alert']
+        }))
+
+    async def event_message(self, event):
+        """Handle events from event bus"""
+        await self.send(text_data=json.dumps({
+            'type': 'event',
+            'data': event['event']
         }))
