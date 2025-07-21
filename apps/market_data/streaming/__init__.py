@@ -4,11 +4,13 @@ Real-time market data streaming package
 """
 
 from .service import (
-    StreamingEngine, MarketDataPoint, StreamStatus, 
-    DataQuality, StreamMetrics, streaming_engine
+    StreamingEngine, streaming_engine, CacheManager,
+    DataFeedManager, CircuitBreaker, StreamMetrics
 )
+from ..common import MarketDataPoint, StreamStatus, DataQuality
 
 __all__ = [
-    'StreamingEngine', 'MarketDataPoint', 'StreamStatus',
-    'DataQuality', 'StreamMetrics', 'streaming_engine'
+    'StreamingEngine', 'streaming_engine', 'CacheManager',
+    'DataFeedManager', 'CircuitBreaker', 'StreamMetrics',
+    'MarketDataPoint', 'StreamStatus', 'DataQuality'
 ]

@@ -200,6 +200,7 @@ CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'UTC'
 
 CELERY_TASK_ROUTES = {
+    'apps.market_data.analysis.tasks.*': {'queue': 'technical_analysis'},
     'apps.market_data.tasks.ingest_market_data_async': {'queue': 'data_ingestion'},
     'apps.market_data.tasks.calculate_technical_indicators_*': {'queue': 'analytics'},
     'apps.market_data.tasks.update_portfolio_analytics': {'queue': 'portfolio'},
@@ -285,6 +286,24 @@ CELERY_BEAT_SCHEDULE = {
     'streaming-metrics-collection': {
         'task': 'apps.market_data.streaming.tasks.get_streaming_metrics',
         'schedule': 300.0,  # Every 5 minutes
+    },
+
+    # Comprehensive technical analysis every 30 minutes
+    'comprehensive-technical-analysis': {
+        'task': 'apps.market_data.analysis.tasks.analyze_watchlist_symbols',
+        'schedule': 1800.0,  # Every 30 minutes
+    },
+
+    # Collect TA metrics every 10 minutes
+    'technical-analysis-metrics': {
+        'task': 'apps.market_data.analysis.tasks.collect_technical_analysis_metrics',
+        'schedule': 600.0,  # Every 10 minutes
+    },
+
+    # Cleanup cached signals daily at 2 AM
+    'cleanup-technical-signals': {
+        'task': 'apps.market_data.analysis.tasks.cleanup_cached_signals',
+        'schedule': crontab(hour=2, minute=0),
     },
 }
 

@@ -10,7 +10,8 @@ from unittest.mock import AsyncMock, patch, MagicMock
 from decimal import Decimal
 from django.utils import timezone
 
-from ..streaming.service import StreamingEngine, MarketDataPoint, StreamStatus, CacheManager
+from ..streaming.service import StreamingEngine, CacheManager
+from ..common import MarketDataPoint, StreamStatus
 from ..models import Ticker, Exchange, DataSource
 
 

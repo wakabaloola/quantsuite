@@ -42,27 +42,12 @@ from apps.core.events import publish_market_data_update, publish_technical_signa
 from ..services import YFinanceService, AlphaVantageService
 from ..models import Ticker, MarketData, DataSource
 from ..technical_analysis import TechnicalAnalysisCalculator
+from ..common import MarketDataPoint, StreamStatus, DataQuality
 
 logger = logging.getLogger(__name__)
 
 
-class StreamStatus(Enum):
-    """Streaming service status"""
-    STOPPED = "stopped"
-    STARTING = "starting"
-    RUNNING = "running"
-    PAUSED = "paused"
-    ERROR = "error"
-    DEGRADED = "degraded"
-
-
-class DataQuality(Enum):
-    """Data quality levels"""
-    EXCELLENT = "excellent"
-    GOOD = "good"
-    FAIR = "fair"
-    POOR = "poor"
-    UNKNOWN = "unknown"
+# StreamStatus, DataQuality, and MarketDataPoint are now imported from common module
 
 
 @dataclass

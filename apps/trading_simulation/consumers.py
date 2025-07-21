@@ -7,6 +7,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from .models import SimulatedInstrument, UserSimulationProfile
 from apps.core.events import event_bus
+from apps.market_data.analysis import enhanced_ta_service
 from apps.market_data.streaming import streaming_engine
 from apps.order_management.models import SimulatedOrder
 from apps.risk_management.models import SimulatedPosition
@@ -382,4 +383,79 @@ class RealTimeMarketDataConsumer(AsyncWebsocketConsumer):
         await self.send(text_data=json.dumps({
             'type': 'event',
             'data': event['event']
+        }))
+
+
+class TechnicalSignalsConsumer(AsyncWebsocketConsumer):
+    """Real-time technical signals consumer"""
+    
+    async def connect(self):
+        self.symbol = self.scope['url_route']['kwargs'].get('symbol', 'ALL').upper()
+        
+        if self.symbol == 'ALL':
+            self.group_name = 'technical_signals_global'
+        else:
+            self.group_name = f'technical_signals_{self.symbol}'
+        
+        # Join technical signals group
+        await self.channel_layer.group_add(
+            self.group_name,
+            self.channel_name
+        )
+        
+        await self.accept()
+        
+        # Send initial signal if available
+        await self.send_initial_signal()
+    
+    async def disconnect(self, close_code):
+        # Leave group
+        await self.channel_layer.group_discard(
+            self.group_name,
+            self.channel_name
+        )
+    
+    async def receive(self, text_data):
+        data = json.loads(text_data)
+        message_type = data.get('type')
+        
+        if message_type == 'get_signal':
+            symbol = data.get('symbol', self.symbol)
+            if symbol != 'ALL':
+                signal = enhanced_ta_service.get_cached_signal(symbol)
+                if signal:
+                    await self.send(text_data=json.dumps({
+                        'type': 'cached_signal',
+                        'signal': signal.to_dict()
+                    }))
+        
+        elif message_type == 'get_metrics':
+            metrics = enhanced_ta_service.get_service_metrics()
+            await self.send(text_data=json.dumps({
+                'type': 'service_metrics',
+                'metrics': metrics
+            }))
+    
+    async def send_initial_signal(self):
+        """Send initial signal state"""
+        if self.symbol != 'ALL':
+            signal = enhanced_ta_service.get_cached_signal(self.symbol)
+            if signal:
+                await self.send(text_data=json.dumps({
+                    'type': 'initial_signal',
+                    'signal': signal.to_dict()
+                }))
+        
+        # Send service status
+        metrics = enhanced_ta_service.get_service_metrics()
+        await self.send(text_data=json.dumps({
+            'type': 'service_status',
+            'metrics': metrics
+        }))
+    
+    async def technical_signal(self, event):
+        """Handle technical signal from enhanced TA service"""
+        await self.send(text_data=json.dumps({
+            'type': 'technical_signal',
+            'signal': event['signal']
         }))
