@@ -6,9 +6,10 @@ from channels.db import database_sync_to_async
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from .models import SimulatedInstrument, UserSimulationProfile
+from apps.core.events import event_bus
+from apps.market_data.streaming import streaming_engine
 from apps.order_management.models import SimulatedOrder
 from apps.risk_management.models import SimulatedPosition
-from apps.core.events import event_bus
 
 User = get_user_model()
 
@@ -270,6 +271,112 @@ class RiskAlertsConsumer(AsyncWebsocketConsumer):
             'alert': event['alert']
         }))
 
+    async def event_message(self, event):
+        """Handle events from event bus"""
+        await self.send(text_data=json.dumps({
+            'type': 'event',
+            'data': event['event']
+        }))
+
+
+class RealTimeMarketDataConsumer(AsyncWebsocketConsumer):
+    """Real-time market data streaming consumer"""
+    
+    async def connect(self):
+        self.symbol = self.scope['url_route']['kwargs'].get('symbol', 'ALL').upper()
+        
+        if self.symbol == 'ALL':
+            self.group_name = 'market_data_global'
+        else:
+            self.group_name = f'market_{self.symbol}'
+        
+        # Join market data group
+        await self.channel_layer.group_add(
+            self.group_name,
+            self.channel_name
+        )
+        
+        await self.accept()
+        
+        # Subscribe to symbol if specific
+        if self.symbol != 'ALL':
+            streaming_engine.subscribe_symbol(self.symbol, high_frequency=True)
+        
+        # Send initial data
+        await self.send_initial_data()
+    
+    async def disconnect(self, close_code):
+        # Unsubscribe from symbol
+        if self.symbol != 'ALL':
+            streaming_engine.unsubscribe_symbol(self.symbol)
+        
+        # Leave group
+        await self.channel_layer.group_discard(
+            self.group_name,
+            self.channel_name
+        )
+    
+    async def receive(self, text_data):
+        data = json.loads(text_data)
+        message_type = data.get('type')
+        
+        if message_type == 'subscribe':
+            symbol = data.get('symbol', '').upper()
+            if symbol:
+                streaming_engine.subscribe_symbol(symbol, high_frequency=True)
+                await self.send(text_data=json.dumps({
+                    'type': 'subscription_confirmed',
+                    'symbol': symbol
+                }))
+        
+        elif message_type == 'unsubscribe':
+            symbol = data.get('symbol', '').upper()
+            if symbol:
+                streaming_engine.unsubscribe_symbol(symbol)
+                await self.send(text_data=json.dumps({
+                    'type': 'unsubscription_confirmed',
+                    'symbol': symbol
+                }))
+        
+        elif message_type == 'get_metrics':
+            metrics = streaming_engine.get_metrics()
+            await self.send(text_data=json.dumps({
+                'type': 'metrics',
+                'data': metrics
+            }))
+    
+    async def send_initial_data(self):
+        """Send initial market data state"""
+        if self.symbol != 'ALL':
+            # Send current quote if available
+            quote = await streaming_engine.get_current_quote(self.symbol)
+            if quote:
+                await self.send(text_data=json.dumps({
+                    'type': 'initial_quote',
+                    'data': {
+                        'symbol': quote.symbol,
+                        'price': float(quote.price),
+                        'volume': quote.volume,
+                        'timestamp': quote.timestamp.isoformat()
+                    }
+                }))
+        
+        # Send streaming status
+        metrics = streaming_engine.get_metrics()
+        await self.send(text_data=json.dumps({
+            'type': 'streaming_status',
+            'status': metrics['status'],
+            'active_symbols': metrics['active_symbols'],
+            'data_quality': metrics['performance']['data_quality']
+        }))
+    
+    async def price_update(self, event):
+        """Handle price update from streaming engine"""
+        await self.send(text_data=json.dumps({
+            'type': 'price_update',
+            'data': event['data']
+        }))
+    
     async def event_message(self, event):
         """Handle events from event bus"""
         await self.send(text_data=json.dumps({

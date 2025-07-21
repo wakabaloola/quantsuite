@@ -204,6 +204,7 @@ CELERY_TASK_ROUTES = {
     'apps.market_data.tasks.calculate_technical_indicators_*': {'queue': 'analytics'},
     'apps.market_data.tasks.update_portfolio_analytics': {'queue': 'portfolio'},
     'apps.market_data.tasks.cleanup_old_data': {'queue': 'maintenance'},
+    'apps.market_data.streaming.tasks.*': {'queue': 'streaming'},
     'apps.core.tasks.process_event': {'queue': 'events'},
 }
 
@@ -272,6 +273,18 @@ CELERY_BEAT_SCHEDULE = {
     'health-check-simulation': {
         'task': 'apps.trading_simulation.tasks.health_check_simulation_system',
         'schedule': crontab(minute='*/15'),
+    },
+    
+    # Health check streaming service every 2 minutes
+    'streaming-health-check': {
+        'task': 'apps.market_data.streaming.tasks.health_check_streaming',
+        'schedule': 120.0,  # Every 2 minutes
+    },
+    
+    # Collect streaming metrics every 5 minutes
+    'streaming-metrics-collection': {
+        'task': 'apps.market_data.streaming.tasks.get_streaming_metrics',
+        'schedule': 300.0,  # Every 5 minutes
     },
 }
 
