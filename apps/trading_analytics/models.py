@@ -8,6 +8,7 @@ All metrics are for PAPER TRADING simulation analysis.
 
 from django.db import models
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from apps.market_data.models import BaseModel, Ticker, Sector
 from apps.trading_simulation.models import SimulatedExchange, SimulatedInstrument
 from apps.order_management.models import SimulatedOrder, SimulatedTrade
@@ -403,6 +404,17 @@ class PortfolioAnalytics(BaseModel):
     def __str__(self):
         return f"Analytics-{self.user.username}-{self.analysis_date}"
 
+    def get_real_time_summary(self) -> Dict[str, Any]:
+        """Get summary for real-time WebSocket updates"""
+        return {
+            'total_positions': self.total_positions,
+            'cash_percentage': float(self.cash_percentage),
+            'portfolio_beta': float(self.portfolio_beta) if self.portfolio_beta else None,
+            'concentration_hhi': float(self.concentration_hhi) if self.concentration_hhi else None,
+            'sector_diversification': self.sector_diversification,
+            'last_updated': self.updated_at.isoformat()
+        }
+
 
 class StrategyPerformance(BaseModel):
     """
@@ -632,3 +644,189 @@ class PerformanceAttribution(BaseModel):
     
     def __str__(self):
         return f"Attribution-{self.user.username}-{self.attribution_date}"
+
+
+class RiskAlert(BaseModel):
+    """Real-time risk alerts (different from periodic risk reports)"""
+    
+    ALERT_TYPES = [
+        ('CONCENTRATION_RISK', 'Concentration Risk'),
+        ('HIGH_VOLATILITY', 'High Volatility'),
+        ('DRAWDOWN_ALERT', 'Drawdown Alert'),
+        ('VAR_BREACH', 'VaR Breach'),
+        ('CORRELATION_RISK', 'Correlation Risk'),
+        ('LIQUIDITY_RISK', 'Liquidity Risk'),
+        ('POSITION_LIMIT', 'Position Limit Breach'),
+    ]
+    
+    SEVERITY_LEVELS = [
+        ('LOW', 'Low'),
+        ('MEDIUM', 'Medium'),
+        ('HIGH', 'High'),
+        ('CRITICAL', 'Critical'),
+    ]
+    
+    STATUS_CHOICES = [
+        ('ACTIVE', 'Active'),
+        ('ACKNOWLEDGED', 'Acknowledged'),
+        ('RESOLVED', 'Resolved'),
+        ('DISMISSED', 'Dismissed'),
+    ]
+    
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='real_time_risk_alerts'
+    )
+    
+    alert_type = models.CharField(max_length=30, choices=ALERT_TYPES)
+    severity = models.CharField(max_length=20, choices=SEVERITY_LEVELS, default='MEDIUM')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='ACTIVE')
+    
+    title = models.CharField(max_length=200)
+    message = models.TextField()
+    
+    # Alert context
+    threshold_value = models.DecimalField(max_digits=15, decimal_places=6, null=True, blank=True)
+    current_value = models.DecimalField(max_digits=15, decimal_places=6, null=True, blank=True)
+    affected_symbols = models.JSONField(default=list)
+    
+    # Timestamps
+    triggered_at = models.DateTimeField(auto_now_add=True)
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        db_table = 'trading_real_time_risk_alerts'
+        ordering = ['-triggered_at']
+        indexes = [
+            models.Index(fields=['user', 'status']),
+            models.Index(fields=['alert_type', 'severity']),
+            models.Index(fields=['triggered_at']),
+        ]
+    
+    def __str__(self):
+        return f"Alert-{self.user.username}-{self.alert_type}-{self.severity}"
+
+
+class PortfolioAnalyticsCache(BaseModel):
+    """Cache for real-time portfolio analytics to improve WebSocket performance"""
+    
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name='analytics_cache'
+    )
+    
+    # Cached analytics data as JSON
+    portfolio_metrics = models.JSONField(
+        default=dict,
+        help_text="Cached PortfolioMetrics data"
+    )
+    position_analytics = models.JSONField(
+        default=list,
+        help_text="Cached position-level analytics"
+    )
+    sector_allocation = models.JSONField(
+        default=list,
+        help_text="Cached sector allocation data"
+    )
+    risk_metrics = models.JSONField(
+        default=dict,
+        help_text="Cached risk calculations"
+    )
+    
+    # Cache metadata
+    last_calculated = models.DateTimeField(auto_now=True)
+    calculation_duration_ms = models.IntegerField(default=0)
+    cache_version = models.CharField(max_length=20, default='1.0')
+    data_freshness_score = models.DecimalField(
+        max_digits=5, decimal_places=2, default=Decimal('100.00'),
+        help_text="Freshness score (0-100)"
+    )
+    
+    class Meta:
+        db_table = 'trading_analytics_cache'
+    
+    def __str__(self):
+        return f"Cache-{self.user.username}"
+
+
+class PerformanceBenchmark(BaseModel):
+    """Performance benchmarks for comparison (extends your BenchmarkComparison)"""
+    
+    name = models.CharField(max_length=100)
+    symbol = models.CharField(max_length=20, unique=True)
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+    is_default = models.BooleanField(default=False)
+    
+    # Benchmark metadata
+    benchmark_category = models.CharField(
+        max_length=50,
+        choices=[
+            ('EQUITY_BROAD', 'Broad Equity Market'),
+            ('EQUITY_SECTOR', 'Sector Equity'),
+            ('EQUITY_STYLE', 'Equity Style'),
+            ('FIXED_INCOME', 'Fixed Income'),
+            ('COMMODITY', 'Commodity'),
+            ('CURRENCY', 'Currency'),
+            ('CUSTOM', 'Custom Benchmark'),
+        ],
+        default='EQUITY_BROAD'
+    )
+    
+    class Meta:
+        db_table = 'trading_performance_benchmarks'
+    
+    def __str__(self):
+        return f"Benchmark-{self.name}-({self.symbol})"
+
+
+class RealTimeMetrics(BaseModel):
+    """Real-time metrics snapshots for WebSocket broadcasting"""
+    
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='realtime_metrics'
+    )
+    
+    # Snapshot timing
+    snapshot_timestamp = models.DateTimeField(auto_now_add=True)
+    market_timestamp = models.DateTimeField()
+    
+    # Key real-time metrics
+    total_portfolio_value = models.DecimalField(max_digits=15, decimal_places=2)
+    intraday_pnl = models.DecimalField(max_digits=15, decimal_places=2)
+    intraday_pnl_percentage = models.DecimalField(max_digits=8, decimal_places=4)
+    
+    # Position changes
+    positions_changed = models.JSONField(
+        default=list,
+        help_text="Positions that changed since last snapshot"
+    )
+    
+    # Metrics that triggered updates
+    trigger_reason = models.CharField(
+        max_length=50,
+        choices=[
+            ('PRICE_UPDATE', 'Price Update'),
+            ('ORDER_FILL', 'Order Fill'),
+            ('POSITION_CHANGE', 'Position Change'),
+            ('SCHEDULED', 'Scheduled Update'),
+            ('MANUAL', 'Manual Refresh'),
+        ],
+        default='SCHEDULED'
+    )
+    
+    # Keep only recent records
+    class Meta:
+        db_table = 'trading_realtime_metrics'
+        ordering = ['-snapshot_timestamp']
+        indexes = [
+            models.Index(fields=['user', 'snapshot_timestamp']),
+        ]
+    
+    def __str__(self):
+        return f"Realtime-{self.user.username}-{self.snapshot_timestamp}"

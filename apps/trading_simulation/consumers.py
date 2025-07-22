@@ -7,35 +7,46 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from .models import SimulatedInstrument, UserSimulationProfile
 from apps.core.events import event_bus
+from apps.core.websockets.monitoring import WebSocketMonitoringConsumer
+from apps.core.websockets.middleware import ConnectionTrackingMixin
+from apps.core.websockets.permissions import (
+    WebSocketPermissionMixin,
+    IsAuthenticated,
+    IsOwnerOrReadOnly,
+    HasTradingPermission,
+    CanAccessMarketData,
+    CanControlAlgorithms
+)
 from apps.market_data.analysis import enhanced_ta_service
 from apps.market_data.streaming import streaming_engine
 from apps.order_management.models import SimulatedOrder
 from apps.risk_management.models import SimulatedPosition
+import logging
+
+logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
-class OrderUpdatesConsumer(AsyncWebsocketConsumer):
+class OrderUpdatesConsumer(WebSocketPermissionMixin, ConnectionTrackingMixin, AsyncWebsocketConsumer):
+    permission_classes = [IsAuthenticated(), IsOwnerOrReadOnly()]   # Adjust permissions as necessary
+
     async def connect(self):
         self.user_id = self.scope['url_route']['kwargs']['user_id']
         self.user_group_name = f'orders_{self.user_id}'
         
-        # Join user-specific group
-        await self.channel_layer.group_add(
-            self.user_group_name,
-            self.channel_name
-        )
-        
-        await self.accept()
+        # Use enhanced connect with permission and connection tracking
+        await super().connect()
+
+        # Join user-specific group with tracking
+        await self.join_tracked_group(self.user_group_name)
         
         # Send initial order status
         await self.send_initial_orders()
     
     async def disconnect(self, close_code):
-        await self.channel_layer.group_discard(
-            self.user_group_name,
-            self.channel_name
-        )
-    
+        # Use enhanced disconnect with cleanup
+        await super().disconnect(close_code) 
+
     async def receive(self, text_data):
         data = json.loads(text_data)
         message_type = data.get('type')
@@ -43,37 +54,37 @@ class OrderUpdatesConsumer(AsyncWebsocketConsumer):
         if message_type == 'subscribe_orders':
             await self.send_initial_orders()
         elif message_type == 'heartbeat':
-            await self.send(text_data=json.dumps({
+            await self.send_tracked_message({
                 'type': 'heartbeat_response',
                 'timestamp': timezone.now().isoformat()
-            }))
+            })
     
     async def send_initial_orders(self):
         orders = await self.get_user_orders()
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'initial_orders',
             'orders': orders
-        }))
+        })
     
     async def order_update(self, event):
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'order_update',
             'order': event['order']
-        }))
+        })
     
     async def order_filled(self, event):
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'order_filled',
             'order': event['order'],
             'fill_details': event['fill_details']
-        }))
+        })
 
     async def event_message(self, event):
         """Handle events from event bus"""
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'event',
             'data': event['event']
-        }))
+        })
     
     @database_sync_to_async
     def get_user_orders(self):
@@ -96,24 +107,24 @@ class OrderUpdatesConsumer(AsyncWebsocketConsumer):
         except Exception as e:
             return []
 
-class PortfolioUpdatesConsumer(AsyncWebsocketConsumer):
+class PortfolioUpdatesConsumer(WebSocketPermissionMixin, ConnectionTrackingMixin, AsyncWebsocketConsumer):
+    permission_classes = [IsAuthenticated(), IsOwnerOrReadOnly()]
+
     async def connect(self):
         self.user_id = self.scope['url_route']['kwargs']['user_id']
         self.user_group_name = f'portfolio_{self.user_id}'
         
-        await self.channel_layer.group_add(
-            self.user_group_name,
-            self.channel_name
-        )
-        
-        await self.accept()
+        # Use enhanced connect with permission and connection tracking
+        await super().connect()
+
+        # Join user-specific group with tracking
+        await self.join_tracked_group(self.user_group_name)
+
         await self.send_initial_portfolio()
     
     async def disconnect(self, close_code):
-        await self.channel_layer.group_discard(
-            self.user_group_name,
-            self.channel_name
-        )
+        # Use enhanced disconnect with cleanup
+        await super().disconnect(close_code)
     
     async def receive(self, text_data):
         data = json.loads(text_data)
@@ -124,29 +135,29 @@ class PortfolioUpdatesConsumer(AsyncWebsocketConsumer):
     
     async def send_initial_portfolio(self):
         portfolio = await self.get_user_portfolio()
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'initial_portfolio',
             'portfolio': portfolio
-        }))
+        })
     
     async def portfolio_update(self, event):
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'portfolio_update',
             'portfolio': event['portfolio']
-        }))
+        })
     
     async def position_update(self, event):
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'position_update',
             'position': event['position']
-        }))
+        })
 
     async def event_message(self, event):
         """Handle events from event bus"""
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'event',
             'data': event['event']
-        }))
+        })
     
     @database_sync_to_async
     def get_user_portfolio(self):
@@ -171,24 +182,19 @@ class PortfolioUpdatesConsumer(AsyncWebsocketConsumer):
         except Exception as e:
             return {'error': str(e)}
 
-class MarketDataConsumer(AsyncWebsocketConsumer):
+class MarketDataConsumer(WebSocketPermissionMixin, ConnectionTrackingMixin, AsyncWebsocketConsumer):
+    permission_classes = [IsAuthenticated(), CanAccessMarketData()]
+
     async def connect(self):
         self.symbol = self.scope['url_route']['kwargs']['symbol']
         self.market_group_name = f'market_{self.symbol}'
         
-        await self.channel_layer.group_add(
-            self.market_group_name,
-            self.channel_name
-        )
-        
-        await self.accept()
+        await super().connect()
+        await self.join_tracked_group(self.market_group_name)
         await self.send_initial_market_data()
     
     async def disconnect(self, close_code):
-        await self.channel_layer.group_discard(
-            self.market_group_name,
-            self.channel_name
-        )
+        await super().disconnect(close_code)
     
     async def receive(self, text_data):
         data = json.loads(text_data)
@@ -199,29 +205,29 @@ class MarketDataConsumer(AsyncWebsocketConsumer):
     
     async def send_initial_market_data(self):
         market_data = await self.get_market_data()
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'initial_market_data',
             'data': market_data
-        }))
+        })
     
     async def price_update(self, event):
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'price_update',
             'data': event['data']
-        }))
+        })
     
     async def orderbook_update(self, event):
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'orderbook_update',
             'data': event['data']
-        }))
+        })
     
     async def event_message(self, event):
         """Handle events from event bus"""
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'event',
             'data': event['event']
-        }))
+        })
 
     @database_sync_to_async
     def get_market_data(self):
@@ -242,45 +248,45 @@ class MarketDataConsumer(AsyncWebsocketConsumer):
         except Exception as e:
             return {'error': str(e)}
 
-class RiskAlertsConsumer(AsyncWebsocketConsumer):
+class RiskAlertsConsumer(WebSocketPermissionMixin, ConnectionTrackingMixin, AsyncWebsocketConsumer):
+    permission_classes = [IsAuthenticated(), IsOwnerOrReadOnly()]
+
     async def connect(self):
         self.user_id = self.scope['url_route']['kwargs']['user_id']
         self.risk_group_name = f'risk_{self.user_id}'
         
-        await self.channel_layer.group_add(
-            self.risk_group_name,
-            self.channel_name
-        )
+        # Use enhanced connect with permission and connection tracking
+        await super().connect()
         
-        await self.accept()
+        # Join user-specific group with tracking
+        await self.join_tracked_group(self.risk_group_name)
     
     async def disconnect(self, close_code):
-        await self.channel_layer.group_discard(
-            self.risk_group_name,
-            self.channel_name
-        )
+        # Use enhanced disconnect with cleanup
+        await super().disconnect(close_code)
     
     async def risk_alert(self, event):
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'risk_alert',
             'alert': event['alert']
-        }))
+        })
     
     async def compliance_alert(self, event):
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'compliance_alert',
             'alert': event['alert']
-        }))
+        })
 
     async def event_message(self, event):
         """Handle events from event bus"""
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'event',
             'data': event['event']
-        }))
+        })
 
 
-class RealTimeMarketDataConsumer(AsyncWebsocketConsumer):
+class RealTimeMarketDataConsumer(WebSocketPermissionMixin, ConnectionTrackingMixin, AsyncWebsocketConsumer):
+    permission_classes = [IsAuthenticated(), CanAccessMarketData()]
     """Real-time market data streaming consumer"""
     
     async def connect(self):
@@ -292,12 +298,11 @@ class RealTimeMarketDataConsumer(AsyncWebsocketConsumer):
             self.group_name = f'market_{self.symbol}'
         
         # Join market data group
-        await self.channel_layer.group_add(
-            self.group_name,
-            self.channel_name
-        )
+        # Use enhanced connect with permission and connection tracking
+        await super().connect()
         
-        await self.accept()
+        # Join user-specific group with tracking
+        await self.join_tracked_group(self.group_name)
         
         # Subscribe to symbol if specific
         if self.symbol != 'ALL':
@@ -312,10 +317,7 @@ class RealTimeMarketDataConsumer(AsyncWebsocketConsumer):
             streaming_engine.unsubscribe_symbol(self.symbol)
         
         # Leave group
-        await self.channel_layer.group_discard(
-            self.group_name,
-            self.channel_name
-        )
+        await super().disconnect(close_code)
     
     async def receive(self, text_data):
         data = json.loads(text_data)
@@ -325,26 +327,26 @@ class RealTimeMarketDataConsumer(AsyncWebsocketConsumer):
             symbol = data.get('symbol', '').upper()
             if symbol:
                 streaming_engine.subscribe_symbol(symbol, high_frequency=True)
-                await self.send(text_data=json.dumps({
+                await self.send_tracked_message({
                     'type': 'subscription_confirmed',
                     'symbol': symbol
-                }))
+                })
         
         elif message_type == 'unsubscribe':
             symbol = data.get('symbol', '').upper()
             if symbol:
                 streaming_engine.unsubscribe_symbol(symbol)
-                await self.send(text_data=json.dumps({
+                await self.send_tracked_message({
                     'type': 'unsubscription_confirmed',
                     'symbol': symbol
-                }))
+                })
         
         elif message_type == 'get_metrics':
             metrics = streaming_engine.get_metrics()
-            await self.send(text_data=json.dumps({
+            await self.send_tracked_message({
                 'type': 'metrics',
                 'data': metrics
-            }))
+            })
     
     async def send_initial_data(self):
         """Send initial market data state"""
@@ -352,7 +354,7 @@ class RealTimeMarketDataConsumer(AsyncWebsocketConsumer):
             # Send current quote if available
             quote = await streaming_engine.get_current_quote(self.symbol)
             if quote:
-                await self.send(text_data=json.dumps({
+                await self.send_tracked_message({
                     'type': 'initial_quote',
                     'data': {
                         'symbol': quote.symbol,
@@ -360,33 +362,34 @@ class RealTimeMarketDataConsumer(AsyncWebsocketConsumer):
                         'volume': quote.volume,
                         'timestamp': quote.timestamp.isoformat()
                     }
-                }))
+                })
         
         # Send streaming status
         metrics = streaming_engine.get_metrics()
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'streaming_status',
             'status': metrics['status'],
             'active_symbols': metrics['active_symbols'],
             'data_quality': metrics['performance']['data_quality']
-        }))
+        })
     
     async def price_update(self, event):
         """Handle price update from streaming engine"""
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'price_update',
             'data': event['data']
-        }))
+        })
     
     async def event_message(self, event):
         """Handle events from event bus"""
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'event',
             'data': event['event']
-        }))
+        })
 
 
-class TechnicalSignalsConsumer(AsyncWebsocketConsumer):
+class TechnicalSignalsConsumer(WebSocketPermissionMixin, ConnectionTrackingMixin, AsyncWebsocketConsumer):
+    permission_classes = [IsAuthenticated(), CanAccessMarketData()]
     """Real-time technical signals consumer"""
     
     async def connect(self):
@@ -398,22 +401,18 @@ class TechnicalSignalsConsumer(AsyncWebsocketConsumer):
             self.group_name = f'technical_signals_{self.symbol}'
         
         # Join technical signals group
-        await self.channel_layer.group_add(
-            self.group_name,
-            self.channel_name
-        )
+        # Use enhanced connect with permission and connection tracking
+        await super().connect()
         
-        await self.accept()
+        # Join user-specific group with tracking
+        await self.join_tracked_group(self.group_name)
         
         # Send initial signal if available
         await self.send_initial_signal()
     
     async def disconnect(self, close_code):
-        # Leave group
-        await self.channel_layer.group_discard(
-            self.group_name,
-            self.channel_name
-        )
+        # Use enhanced disconnect with cleanup
+        await super().disconnect(close_code)
     
     async def receive(self, text_data):
         data = json.loads(text_data)
@@ -424,66 +423,64 @@ class TechnicalSignalsConsumer(AsyncWebsocketConsumer):
             if symbol != 'ALL':
                 signal = enhanced_ta_service.get_cached_signal(symbol)
                 if signal:
-                    await self.send(text_data=json.dumps({
+                    await self.send_tracked_message({
                         'type': 'cached_signal',
                         'signal': signal.to_dict()
-                    }))
+                    })
         
         elif message_type == 'get_metrics':
             metrics = enhanced_ta_service.get_service_metrics()
-            await self.send(text_data=json.dumps({
+            await self.send_tracked_message({
                 'type': 'service_metrics',
                 'metrics': metrics
-            }))
+            })
     
     async def send_initial_signal(self):
         """Send initial signal state"""
         if self.symbol != 'ALL':
             signal = enhanced_ta_service.get_cached_signal(self.symbol)
             if signal:
-                await self.send(text_data=json.dumps({
+                await self.send_tracked_message({
                     'type': 'initial_signal',
                     'signal': signal.to_dict()
-                }))
+                })
         
         # Send service status
         metrics = enhanced_ta_service.get_service_metrics()
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'service_status',
             'metrics': metrics
-        }))
+        })
     
     async def technical_signal(self, event):
         """Handle technical signal from enhanced TA service"""
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'technical_signal',
             'signal': event['signal']
-        }))
+        })
 
 
-class AlgorithmExecutionConsumer(AsyncWebsocketConsumer):
+class AlgorithmExecutionConsumer(WebSocketPermissionMixin, ConnectionTrackingMixin, AsyncWebsocketConsumer):
     """Real-time algorithm execution status and progress consumer"""
+    permission_classes = [IsAuthenticated(), IsOwnerOrReadOnly(), CanControlAlgorithms()]
+
     
     async def connect(self):
         self.user_id = self.scope['url_route']['kwargs']['user_id']
         self.algo_group_name = f'algorithm_execution_{self.user_id}'
         
-        # Join user-specific algorithm execution group
-        await self.channel_layer.group_add(
-            self.algo_group_name,
-            self.channel_name
-        )
+        # Use enhanced connect with permission and connection tracking
+        await super().connect()
         
-        await self.accept()
+        # Join algorithm execution group with tracking
+        await self.join_tracked_group(self.algo_group_name)
         
         # Send initial algorithm status
         await self.send_initial_algorithm_status()
     
     async def disconnect(self, close_code):
-        await self.channel_layer.group_discard(
-            self.algo_group_name,
-            self.channel_name
-        )
+        # Use enhanced disconnect with cleanup
+        await super().disconnect(close_code)
     
     async def receive(self, text_data):
         data = json.loads(text_data)
@@ -508,90 +505,90 @@ class AlgorithmExecutionConsumer(AsyncWebsocketConsumer):
             if algo_order_id:
                 await self.handle_algorithm_control(algo_order_id, 'CANCEL')
         elif message_type == 'heartbeat':
-            await self.send(text_data=json.dumps({
+            await self.send_tracked_message({
                 'type': 'heartbeat_response',
                 'timestamp': timezone.now().isoformat()
-            }))
+            })
     
     async def send_initial_algorithm_status(self):
         """Send current status of all user's active algorithms"""
         algorithms = await self.get_user_active_algorithms()
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'initial_algorithm_status',
             'algorithms': algorithms,
             'timestamp': timezone.now().isoformat()
-        }))
+        })
     
     async def send_algorithm_details(self, algo_order_id: str):
         """Send detailed information about a specific algorithm"""
         details = await self.get_algorithm_details(algo_order_id)
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'algorithm_details',
             'algo_order_id': algo_order_id,
             'details': details,
             'timestamp': timezone.now().isoformat()
-        }))
+        })
     
     async def handle_algorithm_control(self, algo_order_id: str, action: str):
         """Handle algorithm control actions (pause, resume, cancel)"""
         try:
             success = await self.execute_algorithm_control(algo_order_id, action)
-            await self.send(text_data=json.dumps({
+            await self.send_tracked_message({
                 'type': 'algorithm_control_response',
                 'algo_order_id': algo_order_id,
                 'action': action,
                 'success': success,
                 'timestamp': timezone.now().isoformat()
-            }))
+            })
         except Exception as e:
-            await self.send(text_data=json.dumps({
+            await self.send_tracked_message({
                 'type': 'algorithm_control_error',
                 'algo_order_id': algo_order_id,
                 'action': action,
                 'error': str(e),
                 'timestamp': timezone.now().isoformat()
-            }))
+            })
     
     # Event handlers for algorithm execution events
     async def algorithm_execution_started(self, event):
         """Handle algorithm execution started event"""
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'algorithm_started',
             'data': event['data'],
             'timestamp': timezone.now().isoformat()
-        }))
+        })
     
     async def algorithm_execution_progress(self, event):
         """Handle algorithm execution progress event"""
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'algorithm_progress',
             'data': event['data'],
             'timestamp': timezone.now().isoformat()
-        }))
+        })
     
     async def algorithm_execution_completed(self, event):
         """Handle algorithm execution completed event"""
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'algorithm_completed',
             'data': event['data'],
             'timestamp': timezone.now().isoformat()
-        }))
+        })
     
     async def algorithm_execution_error(self, event):
         """Handle algorithm execution error event"""
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'algorithm_error',
             'data': event['data'],
             'timestamp': timezone.now().isoformat()
-        }))
+        })
     
     async def event_message(self, event):
         """Handle events from event bus"""
-        await self.send(text_data=json.dumps({
+        await self.send_tracked_message({
             'type': 'event',
             'data': event['event'],
             'timestamp': timezone.now().isoformat()
-        }))
+        })
     
     @database_sync_to_async
     def get_user_active_algorithms(self):

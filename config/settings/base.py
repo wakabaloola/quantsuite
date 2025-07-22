@@ -305,6 +305,22 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'apps.market_data.analysis.tasks.cleanup_cached_signals',
         'schedule': crontab(hour=2, minute=0),
     },
+
+    # WebSocket monitoring and maintenance
+    'monitor-websocket-performance': {
+        'task': 'apps.core.tasks.monitor_websocket_performance',
+        'schedule': 60.0,  # Every minute
+    },
+
+    'cleanup-websocket-connections': {
+        'task': 'apps.core.tasks.cleanup_websocket_connections',
+        'schedule': 300.0,  # Every 5 minutes
+    },
+
+    'websocket-health-check': {
+        'task': 'apps.core.tasks.websocket_health_check',
+        'schedule': 600.0,  # Every 10 minutes
+    },
 }
 
 

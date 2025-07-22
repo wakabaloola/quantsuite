@@ -18,4 +18,7 @@ websocket_urlpatterns = [
 
     # Algorithm execution WebSocket
     re_path(r'ws/algorithms/(?P<user_id>\w+)/$', consumers.AlgorithmExecutionConsumer.as_asgi()),
+
+    # WebSocket monitoring (admin only)
+    re_path(r'ws/monitoring/$', consumers.WebSocketMonitoringConsumer.as_asgi()),
 ]
