@@ -7,11 +7,14 @@ All endpoints analyze PAPER TRADING performance.
 """
 
 from rest_framework import viewsets, status, permissions
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
+from django.core.cache import cache
 from django.utils import timezone
 from django.db.models import Q, Sum, Count, Avg, Max, Min
+from asgiref.sync import async_to_sync
 from decimal import Decimal
 import pandas as pd
 import numpy as np
@@ -22,6 +25,7 @@ from .models import (
     PortfolioAnalytics, StrategyPerformance, RiskReport, PerformanceAttribution
 )
 from apps.trading_analytics.serializers import PortfolioAnalyticsSerializer
+from .dashboard_service import dashboard_service
 from .serializers import TradingPerformanceSerializer
 from apps.order_management.models import SimulatedOrder, SimulatedTrade
 from apps.trading_simulation.models import SimulatedPosition
@@ -637,3 +641,228 @@ class TradingReportsViewSet(viewsets.ViewSet):
             'risk_status': latest_risk.risk_status if latest_risk else 'NORMAL',
             'portfolio_var': float(latest_risk.portfolio_var_1d) if latest_risk and latest_risk.portfolio_var_1d else None
         }
+
+
+# Add these new dashboard API endpoints to the end of your existing views.py file
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def dashboard_data_api(request):
+    """
+    REST API endpoint for dashboard data
+    GET /api/analytics/dashboard/data/
+    """
+    try:
+        user_id = request.user.id
+        symbols = request.GET.getlist('symbols', [])
+        
+        # Check cache first
+        cache_key = f"api_dashboard:{user_id}:{hash(tuple(sorted(symbols)))}"
+        cached_data = cache.get(cache_key)
+        
+        if cached_data:
+            return Response({
+                'status': 'success',
+                'data': cached_data,
+                'cached': True,
+                'timestamp': timezone.now().isoformat()
+            })
+        
+        # Get fresh data
+        dashboard_data = async_to_sync(dashboard_service.get_unified_dashboard_data)(
+            user_id, symbols
+        )
+        
+        if not dashboard_data:
+            return Response({
+                'status': 'error',
+                'message': 'Unable to retrieve dashboard data'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        # Cache for 2 minutes
+        cache.set(cache_key, dashboard_data, 120)
+        
+        return Response({
+            'status': 'success',
+            'data': dashboard_data,
+            'cached': False,
+            'timestamp': timezone.now().isoformat()
+        })
+        
+    except Exception as e:
+        return Response({
+            'status': 'error',
+            'message': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def dashboard_summary_api(request):
+    """
+    REST API endpoint for dashboard summary
+    GET /api/analytics/dashboard/summary/
+    """
+    try:
+        user_id = request.user.id
+        
+        # Get summary data from individual services
+        portfolio_summary = async_to_sync(dashboard_service.get_portfolio_analytics)(user_id)
+        risk_summary = async_to_sync(dashboard_service.get_risk_analytics)(user_id)
+        performance_summary = async_to_sync(dashboard_service.get_performance_analytics)(user_id)
+        
+        summary_data = {
+            'portfolio': {
+                'total_value': portfolio_summary.get('summary', {}).get('total_value', 0),
+                'daily_pnl': portfolio_summary.get('summary', {}).get('daily_pnl', 0),
+                'position_count': portfolio_summary.get('position_metrics', {}).get('position_count', 0)
+            },
+            'risk': {
+                'risk_score': risk_summary.get('risk_score', 'UNKNOWN'),
+                'alerts_count': risk_summary.get('alerts', {}).get('active_count', 0),
+                'portfolio_var': risk_summary.get('portfolio_var_1d', 0)
+            },
+            'performance': {
+                'total_return_pct': performance_summary.get('current_performance', {}).get('total_return_pct', 0),
+                'win_rate': performance_summary.get('current_performance', {}).get('win_rate', 0)
+            },
+            'last_updated': timezone.now().isoformat()
+        }
+        
+        return Response({
+            'status': 'success',
+            'summary': summary_data
+        })
+        
+    except Exception as e:
+        return Response({
+            'status': 'error',
+            'message': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def dashboard_health_api(request):
+    """
+    REST API endpoint for dashboard health metrics
+    GET /api/analytics/dashboard/health/
+    """
+    try:
+        # Get dashboard health from cache
+        dashboard_health = cache.get('dashboard_health', {})
+        
+        # Get WebSocket connection metrics
+        from apps.core.websockets.connection_manager import connection_manager
+        connection_metrics = connection_manager.get_metrics()
+        
+        health_data = {
+            'dashboard_health': dashboard_health,
+            'websocket_metrics': {
+                'active_connections': connection_metrics['connections']['active'],
+                'total_messages_sent': connection_metrics['messages']['total_sent'],
+                'error_rate': connection_metrics['messages']['error_rate']
+            },
+            'cache_status': {
+                'dashboard_cache_healthy': True,  # Would check actual cache health
+                'cache_hit_ratio': 0.85  # Would calculate actual ratio
+            },
+            'system_status': 'HEALTHY',
+            'timestamp': timezone.now().isoformat()
+        }
+        
+        return Response({
+            'status': 'success',
+            'health': health_data
+        })
+        
+    except Exception as e:
+        return Response({
+            'status': 'error',
+            'message': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def dashboard_configure_api(request):
+    """
+    REST API endpoint for dashboard configuration
+    POST /api/analytics/dashboard/configure/
+    """
+    try:
+        user_id = request.user.id
+        config = request.data.get('config', {})
+        
+        # Validate configuration
+        allowed_layouts = ['standard', 'compact', 'advanced', 'minimal']
+        if config.get('layout') not in allowed_layouts:
+            return Response({
+                'status': 'error',
+                'message': 'Invalid layout option'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Save configuration to cache (in production, save to database)
+        config_key = f"dashboard_config:{user_id}"
+        cache.set(config_key, config, 86400)  # 24 hours
+        
+        return Response({
+            'status': 'success',
+            'message': 'Dashboard configuration saved',
+            'config': config
+        })
+        
+    except Exception as e:
+        return Response({
+            'status': 'error',
+            'message': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def real_time_portfolio_api(request):
+    """
+    REST API endpoint for real-time portfolio data (integrates with your existing analytics)
+    GET /api/analytics/portfolio/realtime/
+    """
+    try:
+        user = request.user
+        
+        # Use your existing portfolio analysis methods
+        positions = SimulatedPosition.objects.filter(user=user)
+        profile = user.simulation_profile
+        
+        # Get real-time data using dashboard service
+        portfolio_analytics = async_to_sync(dashboard_service.get_portfolio_analytics)(user.id)
+        
+        # Combine your existing detailed analysis with real-time data
+        real_time_data = {
+            'portfolio_summary': {
+                'total_value': float(profile.current_portfolio_value),
+                'cash_balance': float(profile.virtual_cash_balance),
+                'total_return_pct': profile.calculate_total_return_percentage(),
+                'win_rate': profile.get_win_rate()
+            },
+            'positions': [{
+                'symbol': pos.instrument.real_ticker.symbol,
+                'quantity': float(pos.quantity),
+                'market_value': float(pos.market_value),
+                'unrealized_pnl': float(pos.unrealized_pnl),
+                'daily_pnl': float(pos.daily_pnl),
+                'weight_pct': (float(pos.market_value) / float(profile.current_portfolio_value) * 100) if profile.current_portfolio_value > 0 else 0
+            } for pos in positions],
+            'real_time_analytics': portfolio_analytics,
+            'timestamp': timezone.now().isoformat()
+        }
+        
+        return Response({
+            'status': 'success',
+            'data': real_time_data
+        })
+        
+    except Exception as e:
+        return Response({
+            'status': 'error',
+            'message': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

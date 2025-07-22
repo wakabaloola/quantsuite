@@ -124,6 +124,9 @@ urlpatterns = [
     # API v1 endpoints
     path('api/v1/', include(router.urls)),
 
+    # Trading analytics dashboard endpoints
+    path('api/analytics/', include('apps.trading_analytics.urls')),
+
     # Additional API utilities
     path('api/v1/auth/', include('rest_framework.urls')),  # Browsable API auth
 

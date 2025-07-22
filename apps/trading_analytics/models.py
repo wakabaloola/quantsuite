@@ -13,6 +13,7 @@ from apps.market_data.models import BaseModel, Ticker, Sector
 from apps.trading_simulation.models import SimulatedExchange, SimulatedInstrument
 from apps.order_management.models import SimulatedOrder, SimulatedTrade
 from decimal import Decimal
+from typing import Dict, List, Optional, Any, Tuple
 import uuid
 
 User = get_user_model()

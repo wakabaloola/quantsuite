@@ -21,4 +21,7 @@ websocket_urlpatterns = [
 
     # WebSocket monitoring (admin only)
     re_path(r'ws/monitoring/$', consumers.WebSocketMonitoringConsumer.as_asgi()),
+
+    # Integrated Market Dashboard (comprehensive feed)
+    re_path(r'ws/dashboard/(?P<user_id>\w+)/$', consumers.IntegratedMarketDashboardConsumer.as_asgi()),
 ]

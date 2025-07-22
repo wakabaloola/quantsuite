@@ -321,6 +321,32 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'apps.core.tasks.websocket_health_check',
         'schedule': 600.0,  # Every 10 minutes
     },
+
+    # Dashboard-specific tasks
+    'update-dashboard-cache': {
+        'task': 'apps.trading_analytics.tasks.update_dashboard_cache_all_users',
+        'schedule': 300.0,  # Every 5 minutes
+    },
+
+    'broadcast-market-summary': {
+        'task': 'apps.trading_analytics.tasks.broadcast_market_summary',
+        'schedule': 60.0,  # Every minute during market hours
+    },
+
+    'calculate-dashboard-performance': {
+        'task': 'apps.trading_analytics.tasks.calculate_dashboard_performance_metrics',
+        'schedule': 600.0,  # Every 10 minutes
+    },
+
+    'cleanup-dashboard-sessions': {
+        'task': 'apps.trading_analytics.tasks.cleanup_dashboard_sessions',
+        'schedule': 1800.0,  # Every 30 minutes
+    },
+
+    'generate-dashboard-alerts': {
+        'task': 'apps.trading_analytics.tasks.generate_dashboard_alerts',
+        'schedule': 900.0,  # Every 15 minutes
+    },
 }
 
 
