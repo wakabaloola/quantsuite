@@ -111,14 +111,35 @@ class ConnectionManager:
         self.rate_limits: Dict[str, deque] = defaultdict(lambda: deque(maxlen=100))
         self.rate_limit_per_minute = getattr(settings, 'WEBSOCKET_SETTINGS', {}).get('RATE_LIMIT_PER_MINUTE', 100)
         
-        # Start background tasks
+        # Background task management - DON'T START IMMEDIATELY
         self._cleanup_task = None
-        self._start_background_tasks()
+        self._background_tasks_started = False
+        
+        logger.info("ConnectionManager initialized (background tasks will start on first connection)")
+    
+    def _ensure_background_tasks(self):
+        """Start background tasks if they haven't been started yet and there's an event loop"""
+        if self._background_tasks_started:
+            return
+            
+        try:
+            # Only start if there's a running event loop
+            loop = asyncio.get_running_loop()
+            if loop and not loop.is_closed():
+                self._start_background_tasks()
+                self._background_tasks_started = True
+                logger.info("Background tasks started for ConnectionManager")
+        except RuntimeError:
+            # No running event loop - that's fine, tasks will start later
+            logger.debug("No running event loop, background tasks will start later")
     
     async def register_connection(self, channel_name: str, user_id: Optional[int] = None, 
                                  consumer_type: str = "unknown") -> bool:
         """Register a new WebSocket connection"""
         try:
+            # Ensure background tasks are running when first connection is made
+            self._ensure_background_tasks()
+            
             now = timezone.now()
             
             # Check connection limits for authenticated users
@@ -265,10 +286,13 @@ class ConnectionManager:
             self.message_queues[user_id].append(queued_msg)
             
             # Also store in Redis for persistence
-            cache_key = f"websocket_queue:{user_id}"
-            queue_data = cache.get(cache_key, [])
-            queue_data.append(queued_msg.to_dict())
-            cache.set(cache_key, queue_data[-100:], ttl)  # Keep last 100 messages
+            try:
+                cache_key = f"websocket_queue:{user_id}"
+                queue_data = cache.get(cache_key, [])
+                queue_data.append(queued_msg.to_dict())
+                cache.set(cache_key, queue_data[-100:], ttl)  # Keep last 100 messages
+            except Exception as cache_error:
+                logger.warning(f"Could not persist message queue to cache: {cache_error}")
             
             logger.info(f"Queued message for offline user {user_id}: {message.get('type')}")
             return True
@@ -282,7 +306,13 @@ class ConnectionManager:
         try:
             # Get messages from cache
             cache_key = f"websocket_queue:{user_id}"
-            queue_data = cache.get(cache_key, [])
+            queue_data = []
+            
+            try:
+                queue_data = cache.get(cache_key, [])
+            except Exception as cache_error:
+                logger.warning(f"Could not retrieve queued messages from cache: {cache_error}")
+                return
             
             if not queue_data:
                 return
@@ -309,7 +339,11 @@ class ConnectionManager:
                     logger.error(f"Error delivering queued message: {msg_error}")
             
             # Clear the queue
-            cache.delete(cache_key)
+            try:
+                cache.delete(cache_key)
+            except Exception:
+                pass
+                
             if user_id in self.message_queues:
                 self.message_queues[user_id].clear()
             
@@ -443,9 +477,13 @@ class ConnectionManager:
         ]
     
     def _start_background_tasks(self):
-        """Start background maintenance tasks"""
-        if not self._cleanup_task:
-            self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+        """Start background maintenance tasks (only when event loop is available)"""
+        try:
+            if not self._cleanup_task or self._cleanup_task.done():
+                self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+                logger.info("Background cleanup task started")
+        except RuntimeError as e:
+            logger.warning(f"Could not start background tasks: {e}")
     
     async def _cleanup_loop(self):
         """Background task for periodic cleanup"""
@@ -454,11 +492,28 @@ class ConnectionManager:
                 await asyncio.sleep(self.cleanup_interval)
                 await self.cleanup_stale_connections()
             except asyncio.CancelledError:
+                logger.info("Cleanup loop cancelled")
                 break
             except Exception as e:
                 logger.error(f"Error in cleanup loop: {e}")
                 await asyncio.sleep(30)  # Wait before retrying
+    
+    def shutdown(self):
+        """Shutdown the connection manager gracefully"""
+        logger.info("Shutting down ConnectionManager")
+        
+        # Cancel background tasks
+        if self._cleanup_task and not self._cleanup_task.done():
+            self._cleanup_task.cancel()
+        
+        # Clear connections
+        self.connections.clear()
+        self.user_connections.clear()
+        self.connection_groups.clear()
+        self.message_queues.clear()
+        
+        logger.info("ConnectionManager shutdown complete")
 
 
-# Global connection manager instance
+# Global connection manager instance - no background tasks started until first connection
 connection_manager = ConnectionManager()

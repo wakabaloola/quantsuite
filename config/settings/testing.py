@@ -1,3 +1,4 @@
+# config/settings/testing.py
 from .base import *
 
 # Use in-memory database for faster tests
@@ -49,9 +50,14 @@ LOGGING = {
     },
 }
 
-# Disable WebSocket for tests
+# Use in-memory channel layer for tests
 CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels.layers.InMemoryChannelLayer',
     },
 }
+
+# 🔥 FIX: Override REST_FRAMEWORK settings to disable throttling for tests
+REST_FRAMEWORK['DEFAULT_THROTTLE_CLASSES'] = []
+REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'] = {}
+

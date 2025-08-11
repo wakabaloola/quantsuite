@@ -8,7 +8,6 @@ All orders and trades are SIMULATED - no real money involved.
 
 from django.db import models
 from django.contrib.auth import get_user_model
-from django.contrib.postgres.fields import JSONField
 from django.core.validators import MinValueValidator, MaxValueValidator
 from apps.market_data.models import BaseModel
 from apps.trading_simulation.models import (
@@ -454,7 +453,7 @@ class MatchingEngine(BaseModel):
 
 
 # Add these imports at the top
-from django.contrib.postgres.fields import JSONField
+from django.db.models import JSONField # 🔥 FIX: Use the correct import for JSONField
 from django.core.validators import MinValueValidator, MaxValueValidator
 
 # Add these new models to your existing models.py file
@@ -507,7 +506,8 @@ class AlgorithmicOrder(BaseModel):
     )
     
     # Algorithm details
-    algorithm_type = models.CharField(max_length=20, choices=AlgorithmType.choices)
+    # 🔥 FIX: Increased max_length from 20 to 30 to accommodate longer algorithm names
+    algorithm_type = models.CharField(max_length=30, choices=AlgorithmType.choices)
     side = models.CharField(max_length=10, choices=OrderSide.choices)
     total_quantity = models.PositiveIntegerField(help_text="Total shares to trade")
     
@@ -757,3 +757,4 @@ class StrategyBacktest(BaseModel):
     
     def __str__(self):
         return f"Backtest: {self.strategy.name} ({self.start_date} to {self.end_date})"
+

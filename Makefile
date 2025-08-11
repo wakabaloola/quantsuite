@@ -5,19 +5,19 @@
 help:
 	@echo "🐳 QSuite Docker Test Commands"
 	@echo "=============================="
-	@echo "make test           - Run comprehensive test suite"
-	@echo "make test-unit      - Run unit tests only"
-	@echo "make test-integration - Run integration tests only"
+	@echo "make test           - Run the COMPLETE test suite for all apps"
+	@echo "make test-unit      - Run specific unit tests"
+	@echo "make test-integration - Run dashboard integration tests"
 	@echo "make test-performance - Run performance tests only"
-	@echo "make test-api       - Run API tests only"
-	@echo "make test-quick     - Run quick smoke tests"
-	@echo "make setup-test     - Setup test environment"
-	@echo "make clean-test     - Clean test environment"
+	@echo "make test-api       - Run API tests only"
+	@echo "make test-quick     - Run quick smoke tests"
+	@echo "make setup-test     - Setup test environment"
+	@echo "make clean-test     - Clean test environment"
 
-# Comprehensive test suite
+# Comprehensive test suite - This now runs ALL tests Django can find.
 test:
-	@echo "🚀 Running comprehensive Docker test suite..."
-	docker-compose exec web python scripts/run_comprehensive_tests.py
+	@echo "🚀 Running comprehensive test suite for all apps..."
+	docker-compose exec web python manage.py test --keepdb
 
 test-all: test
 
@@ -33,7 +33,6 @@ test-unit:
 test-integration:
 	@echo "🔗 Running integration tests..."
 	docker-compose exec web python manage.py test tests.integration.test_dashboard_integration --keepdb
-	docker-compose exec web pytest tests/integration/test_dashboard_integration.py::TestRealTimeDataFlow -v
 
 # Performance tests
 test-performance:

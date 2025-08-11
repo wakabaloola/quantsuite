@@ -1,6 +1,8 @@
 # apps/trading_simulation/consumers.py
 import json
 import asyncio
+from datetime import datetime
+from typing import Dict, Any, Set
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from django.contrib.auth import get_user_model
@@ -1590,3 +1592,4 @@ class IntegratedMarketDashboardConsumer(WebSocketPermissionMixin, ConnectionTrac
     async def market_summary_broadcast(self, event):
         """Handle global market summary broadcasts"""
         await self.send_tracked_message(event['data'])
+

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from typing import Dict, List, Optional, Any
-from .bus import BaseEvent, EventPriority
+from .base import BaseEvent, EventPriority
 
 
 # Market Data Events

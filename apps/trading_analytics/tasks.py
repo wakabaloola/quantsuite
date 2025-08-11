@@ -8,10 +8,17 @@ from django.utils import timezone
 from channels.layers import get_channel_layer
 from channels.db import database_sync_to_async
 from asgiref.sync import async_to_sync
+from django.core.cache import cache
+from django.contrib.auth import get_user_model
+
 
 from .portfolio_analytics import portfolio_analytics_service
+from .dashboard_service import dashboard_service
+from apps.core.websockets.connection_manager import connection_manager
+from apps.core.events import publish_risk_alert
 
 logger = logging.getLogger(__name__)
+User = get_user_model()
 
 
 @shared_task(bind=True, max_retries=3)
@@ -96,10 +103,7 @@ def calculate_position_analytics(self, user_id: int):
 def calculate_all_users_analytics():
     """Calculate analytics for all active users"""
     try:
-        from django.contrib.auth import get_user_model
         from apps.trading_simulation.models import UserSimulationProfile
-        
-        User = get_user_model()
         
         # Get users with active trading profiles
         active_users = User.objects.filter(
@@ -139,11 +143,8 @@ def calculate_all_users_analytics():
 def update_portfolio_performance_history():
     """Update historical performance tracking for all users"""
     try:
-        from django.contrib.auth import get_user_model
         from apps.trading_simulation.models import UserSimulationProfile
         from apps.trading_analytics.models import PortfolioSnapshot
-        
-        User = get_user_model()
         
         # Get all active users
         active_users = User.objects.filter(
@@ -239,7 +240,6 @@ def calculate_market_correlation_matrix():
                 correlation_dict[symbol1][symbol2] = float(corr_value) if not pd.isna(corr_value) else 0.0
         
         # Cache the correlation matrix
-        from django.core.cache import cache
         cache.set('market_correlation_matrix', correlation_dict, 3600)  # 1 hour
         
         logger.info(f"Calculated correlation matrix for {len(correlation_dict)} symbols")
@@ -258,11 +258,6 @@ def calculate_market_correlation_matrix():
 def generate_risk_alerts():
     """Generate portfolio risk alerts for all users"""
     try:
-        from django.contrib.auth import get_user_model
-        from apps.core.events import publish_risk_alert
-        
-        User = get_user_model()
-        
         # Get users with significant positions
         users_with_positions = User.objects.filter(
             simulated_positions__isnull=False,
@@ -340,11 +335,6 @@ def generate_risk_alerts():
 def update_dashboard_cache_all_users():
     """Update dashboard cache for all active users"""
     try:
-        from django.contrib.auth import get_user_model
-        from .dashboard_service import dashboard_service
-        
-        User = get_user_model()
-        
         # Get users with active trading profiles
         active_users = User.objects.filter(
             simulation_profile__isnull=False,
@@ -394,8 +384,6 @@ def update_dashboard_cache_all_users():
 def broadcast_market_summary():
     """Broadcast market summary to all connected dashboards"""
     try:
-        from .dashboard_service import dashboard_service
-        
         # Get market context and overview
         market_context = async_to_sync(dashboard_service.get_market_context)()
         
@@ -438,10 +426,6 @@ def broadcast_market_summary():
 def calculate_dashboard_performance_metrics():
     """Calculate performance metrics for dashboard display"""
     try:
-        from django.contrib.auth import get_user_model
-        
-        User = get_user_model()
-        
         # Get users who have been active recently
         recent_users = User.objects.filter(
             simulation_profile__isnull=False,
@@ -491,8 +475,6 @@ def calculate_dashboard_performance_metrics():
 def cleanup_dashboard_sessions():
     """Clean up inactive dashboard sessions and cache"""
     try:
-        from apps.core.websockets.connection_manager import connection_manager
-        
         # Get dashboard connection metrics
         metrics = connection_manager.get_metrics()
         
@@ -538,11 +520,6 @@ def cleanup_dashboard_sessions():
 def generate_dashboard_alerts():
     """Generate dashboard-specific alerts and notifications"""
     try:
-        from django.contrib.auth import get_user_model
-        from apps.core.events import publish_risk_alert
-        
-        User = get_user_model()
-        
         # Get users with active dashboard sessions
         dashboard_users = User.objects.filter(
             simulation_profile__isnull=False,
@@ -621,3 +598,4 @@ def get_user_watchlist(user_id: int) -> List[str]:
         return ['SPY', 'QQQ', 'AAPL', 'MSFT', 'GOOGL']
     except Exception:
         return []
+
