@@ -37,7 +37,7 @@ class SimulatedExchange(BaseModel):
     Uses REAL market data but all trading is SIMULATED
     """
     name = models.CharField(max_length=100)
-    code = models.CharField(max_length=10, unique=True)
+    code = models.CharField(max_length=50, unique=True)
     description = models.TextField(blank=True)
     
     # Links to real exchange for market data
