@@ -13,3 +13,8 @@ celery>=5.3
 # Enhanced technical analysis
 ta-lib-bin>=0.4.25  # Technical Analysis Library
 plotly>=5.17.0  # Interactive charts
+
+# Demo dependencies
+rich>=13.0.0
+numpy>=1.21.0
+pandas>=1.3.0
