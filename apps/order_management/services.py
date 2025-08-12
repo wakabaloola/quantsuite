@@ -96,39 +96,44 @@ class OrderMatchingService:
             
             return False, str(e), []
     
+
     def _match_order(self, incoming_order: SimulatedOrder) -> List[Dict]:
         """
-        Match incoming order against existing orders in the book
-        Returns list of match details
+        Match incoming order using production CLOB engine
+        Returns list of match details for backward compatibility
         """
         try:
+            # Use production CLOB engine
+            from .clob_engine import CentralLimitOrderBook
+            
+            clob = CentralLimitOrderBook(incoming_order.instrument)
+            trades, remaining_qty = clob.submit_order(incoming_order)
+            
+            # Update order status based on execution
+            if remaining_qty == 0:
+                incoming_order.status = OrderStatus.FILLED
+                incoming_order.completion_timestamp = timezone.now()
+            elif remaining_qty < incoming_order.quantity:
+                incoming_order.status = OrderStatus.PARTIALLY_FILLED
+            else:
+                incoming_order.status = OrderStatus.ACKNOWLEDGED
+            
+            # Convert to old format for compatibility
             matches = []
-            remaining_quantity = incoming_order.quantity
-            
-            # Get order book for the instrument
-            order_book = incoming_order.instrument.order_book
-            
-            # Find potential matches based on order type
-            if incoming_order.order_type == 'MARKET':
-                # Market orders match at any price
-                matches = self._match_market_order(incoming_order, remaining_quantity)
-            elif incoming_order.order_type == 'LIMIT':
-                # Limit orders match at specified price or better
-                matches = self._match_limit_order(incoming_order, remaining_quantity)
-            
-            # Process all matches
-            for match in matches:
-                self._execute_trade(incoming_order, match)
-                remaining_quantity -= match['quantity']
-                
-                if remaining_quantity <= 0:
-                    break
+            for trade_data in trades:
+                matches.append({
+                    'price': trade_data['price'],
+                    'quantity': trade_data['quantity'],
+                    'counterpart_type': 'real_order',  # Real order, not market maker!
+                    'trade_id': trade_data['trade_id']
+                })
             
             return matches
             
         except Exception as e:
-            self.logger.error(f"Error matching order {incoming_order.order_id}: {e}")
+            self.logger.error(f"CLOB matching error for {incoming_order.order_id}: {e}")
             return []
+
     
     def _match_market_order(self, order: SimulatedOrder, quantity: int) -> List[Dict]:
         """Match a market order against the best available prices"""
@@ -143,7 +148,7 @@ class OrderMatchingService:
                     matches.append({
                         'price': order_book.best_ask_price,
                         'quantity': match_quantity,
-                        'counterpart_type': 'market_maker'
+                        'counterpart_type': 'market_maker'  # Always artificial!
                     })
             else:
                 # Sell market order matches against best bid

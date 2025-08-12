@@ -357,6 +357,35 @@ class OrderBookLevel(BaseModel):
         return f"{self.side} {self.quantity}@{self.price}"
 
 
+class OrderQueue(BaseModel):
+    """
+    Queue of orders at a specific price level (FIFO)
+    Enables proper order-to-order matching in time priority
+    """
+    level = models.ForeignKey(
+        OrderBookLevel,
+        on_delete=models.CASCADE,
+        related_name='order_queue'
+    )
+    order = models.ForeignKey(
+        SimulatedOrder,
+        on_delete=models.CASCADE,
+        related_name='queue_entries'
+    )
+    remaining_quantity = models.PositiveIntegerField()
+    queue_position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = 'simulation_order_queue'
+        ordering = ['queue_position']  # FIFO within price level
+        indexes = [
+            models.Index(fields=['level', 'queue_position']),
+        ]
+
+    def __str__(self):
+        return f"Queue: {self.order.order_id} - {self.remaining_quantity}@{self.level.price}"
+
+
 class Fill(BaseModel):
     """
     SIMULATED Fill - Individual fill/execution record
@@ -757,4 +786,5 @@ class StrategyBacktest(BaseModel):
     
     def __str__(self):
         return f"Backtest: {self.strategy.name} ({self.start_date} to {self.end_date})"
+
 
