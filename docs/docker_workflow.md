@@ -48,7 +48,7 @@ docker-compose exec web python manage.py check --database default
 
 # Test Celery task
 docker-compose exec web python manage.py shell
->>> from apps.core.tasks import test_task
+>>> from apps.core.tasks import test_task       # XXX there is no test_task in tasks.py!!
 >>> result = test_task.delay()
 >>> result.get()
 >>> exit()
@@ -86,8 +86,8 @@ docker-compose down -v
 # Restart web service only
 docker-compose restart web
 
-# Restart web and celery
-docker-compose restart web celery
+# Restart web, celery and redis
+docker-compose restart web celery redis
 ```
 
 ### 📊 Monitoring Services

@@ -31,17 +31,18 @@ class Command(BaseCommand):
         )
 
 
-    def handle(self, *args, **options):
+    def handle(self, *args, cleanup=True, **options):
         self.stdout.write(self.style.SUCCESS('=== REAL TRADING SIMULATION SETUP ===\n'))
 
-        # --- CLEANUP BLOCK ---
-        self.stdout.write(self.style.WARNING('Clearing old simulation data...'))
-        OrderBook.objects.all().delete()
-        SimulatedInstrument.objects.all().delete()
-        SimulatedExchange.objects.all().delete()
-        User.objects.filter(username__startswith='demo_trader').delete()
-        self.stdout.write(self.style.SUCCESS('✓ Old data cleared.\n'))
-        # --- END OF CLEANUP BLOCK ---
+        if cleanup == True:
+            # --- CLEANUP BLOCK ---
+            self.stdout.write(self.style.WARNING('Clearing old simulation data...'))
+            OrderBook.objects.all().delete()
+            SimulatedInstrument.objects.all().delete()
+            SimulatedExchange.objects.all().delete()
+            User.objects.filter(username__startswith='demo_trader').delete()
+            self.stdout.write(self.style.SUCCESS('✓ Old data cleared.\n'))
+            # --- END OF CLEANUP BLOCK ---
 
         num_users = options['users']
         initial_balance = Decimal(str(options['balance']))

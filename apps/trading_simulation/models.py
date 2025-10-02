@@ -457,3 +457,16 @@ class UserSimulationProfile(BaseModel):
             return float(self.profitable_trades / self.total_trades_executed * 100)
         return 0.0
 
+    def update_portfolio_value(self):
+        """Recalculate current portfolio value"""
+        total_value = self.virtual_cash_balance
+
+        # Add position values
+        positions = self.user.simulated_positions.all()
+        for position in positions:
+            if position.current_price:
+                total_value += position.quantity * position.current_price
+
+        self.current_portfolio_value = total_value
+        self.save()
+        return total_value

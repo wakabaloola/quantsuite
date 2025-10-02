@@ -1,0 +1,76 @@
+\begin{MintedVerbatim}[commandchars=\\\{\}]
+\PYG{k+kn}{import}\PYG{+w}{ }\PYG{n+nn}{asyncio}
+\PYG{k+kn}{import}\PYG{+w}{ }\PYG{n+nn}{json}
+\PYG{k+kn}{import}\PYG{+w}{ }\PYG{n+nn}{logging}
+\PYG{k+kn}{from}\PYG{+w}{ }\PYG{n+nn}{typing}\PYG{+w}{ }\PYG{k+kn}{import} \PYG{n}{Dict}\PYG{p}{,} \PYG{n}{Set}\PYG{p}{,} \PYG{n}{Optional}
+\PYG{k+kn}{from}\PYG{+w}{ }\PYG{n+nn}{collections}\PYG{+w}{ }\PYG{k+kn}{import} \PYG{n}{defaultdict}\PYG{p}{,} \PYG{n}{deque}
+\PYG{k+kn}{from}\PYG{+w}{ }\PYG{n+nn}{dataclasses}\PYG{+w}{ }\PYG{k+kn}{import} \PYG{n}{dataclass}
+\PYG{k+kn}{from}\PYG{+w}{ }\PYG{n+nn}{django}\PYG{n+nn}{.}\PYG{n+nn}{utils}\PYG{+w}{ }\PYG{k+kn}{import} \PYG{n}{timezone}
+\PYG{k+kn}{from}\PYG{+w}{ }\PYG{n+nn}{channels}\PYG{n+nn}{.}\PYG{n+nn}{layers}\PYG{+w}{ }\PYG{k+kn}{import} \PYG{n}{get\PYGZus{}channel\PYGZus{}layer}
+
+\PYG{n}{logger} \PYG{o}{=} \PYG{n}{logging}\PYG{o}{.}\PYG{n}{getLogger}\PYG{p}{(}\PYG{n+nv+vm}{\PYGZus{}\PYGZus{}name\PYGZus{}\PYGZus{}}\PYG{p}{)}
+
+\PYG{n+nd}{@dataclass}
+\PYG{k}{class}\PYG{+w}{ }\PYG{n+nc}{ConnectionInfo}\PYG{p}{:}
+    \PYG{n}{channel\PYGZus{}name}\PYG{p}{:} \PYG{n+nb}{str}
+    \PYG{n}{user\PYGZus{}id}\PYG{p}{:} \PYG{n}{Optional}\PYG{p}{[}\PYG{n+nb}{int}\PYG{p}{]}
+    \PYG{n}{consumer\PYGZus{}type}\PYG{p}{:} \PYG{n+nb}{str}
+    \PYG{n}{connected\PYGZus{}at}\PYG{p}{:} \PYG{n}{datetime}
+    \PYG{n}{last\PYGZus{}activity}\PYG{p}{:} \PYG{n}{datetime}
+    \PYG{c+c1}{\PYGZsh{} ... (implementation from connection\PYGZus{}manager.py)}
+
+\PYG{k}{class}\PYG{+w}{ }\PYG{n+nc}{ConnectionManager}\PYG{p}{:}
+    \PYG{k}{def}\PYG{+w}{ }\PYG{n+nf+fm}{\PYGZus{}\PYGZus{}init\PYGZus{}\PYGZus{}}\PYG{p}{(}\PYG{n+nb+bp}{self}\PYG{p}{)}\PYG{p}{:}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{connections}\PYG{p}{:} \PYG{n}{Dict}\PYG{p}{[}\PYG{n+nb}{str}\PYG{p}{,} \PYG{n}{ConnectionInfo}\PYG{p}{]} \PYG{o}{=} \PYG{p}{\PYGZob{}}\PYG{p}{\PYGZcb{}}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{user\PYGZus{}connections}\PYG{p}{:} \PYG{n}{Dict}\PYG{p}{[}\PYG{n+nb}{int}\PYG{p}{,} \PYG{n}{Set}\PYG{p}{[}\PYG{n+nb}{str}\PYG{p}{]}\PYG{p}{]} \PYG{o}{=} \PYG{n}{defaultdict}\PYG{p}{(}\PYG{n+nb}{set}\PYG{p}{)}
+        \PYG{c+c1}{\PYGZsh{} ... (rest of the attributes)}
+
+    \PYG{k}{async} \PYG{k}{def}\PYG{+w}{ }\PYG{n+nf}{register\PYGZus{}connection}\PYG{p}{(}\PYG{n+nb+bp}{self}\PYG{p}{,} \PYG{n}{channel\PYGZus{}name}\PYG{p}{:} \PYG{n+nb}{str}\PYG{p}{,} \PYG{n}{user\PYGZus{}id}\PYG{p}{:} \PYG{n}{Optional}\PYG{p}{[}\PYG{n+nb}{int}\PYG{p}{]} \PYG{o}{=} \PYG{k+kc}{None}\PYG{p}{,}
+                                 \PYG{n}{consumer\PYGZus{}type}\PYG{p}{:} \PYG{n+nb}{str} \PYG{o}{=} \PYG{l+s+s2}{\PYGZdq{}}\PYG{l+s+s2}{unknown}\PYG{l+s+s2}{\PYGZdq{}}\PYG{p}{)} \PYG{o}{\PYGZhy{}}\PYG{o}{\PYGZgt{}} \PYG{n+nb}{bool}\PYG{p}{:}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{\PYGZus{}ensure\PYGZus{}background\PYGZus{}tasks}\PYG{p}{(}\PYG{p}{)}
+        \PYG{n}{now} \PYG{o}{=} \PYG{n}{timezone}\PYG{o}{.}\PYG{n}{now}\PYG{p}{(}\PYG{p}{)}
+        \PYG{k}{if} \PYG{n}{user\PYGZus{}id}\PYG{p}{:}
+            \PYG{k}{if} \PYG{n+nb}{len}\PYG{p}{(}\PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{user\PYGZus{}connections}\PYG{o}{.}\PYG{n}{get}\PYG{p}{(}\PYG{n}{user\PYGZus{}id}\PYG{p}{,} \PYG{n+nb}{set}\PYG{p}{(}\PYG{p}{)}\PYG{p}{)}\PYG{p}{)} \PYG{o}{\PYGZgt{}}\PYG{o}{=} \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{max\PYGZus{}connections\PYGZus{}per\PYGZus{}user}\PYG{p}{:}
+                \PYG{k}{return} \PYG{k+kc}{False}
+        \PYG{n}{connection\PYGZus{}info} \PYG{o}{=} \PYG{n}{ConnectionInfo}\PYG{p}{(}
+            \PYG{n}{channel\PYGZus{}name}\PYG{o}{=}\PYG{n}{channel\PYGZus{}name}\PYG{p}{,}
+            \PYG{n}{user\PYGZus{}id}\PYG{o}{=}\PYG{n}{user\PYGZus{}id}\PYG{p}{,}
+            \PYG{n}{consumer\PYGZus{}type}\PYG{o}{=}\PYG{n}{consumer\PYGZus{}type}\PYG{p}{,}
+            \PYG{n}{connected\PYGZus{}at}\PYG{o}{=}\PYG{n}{now}\PYG{p}{,}
+            \PYG{n}{last\PYGZus{}activity}\PYG{o}{=}\PYG{n}{now}
+        \PYG{p}{)}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{connections}\PYG{p}{[}\PYG{n}{channel\PYGZus{}name}\PYG{p}{]} \PYG{o}{=} \PYG{n}{connection\PYGZus{}info}
+        \PYG{k}{if} \PYG{n}{user\PYGZus{}id}\PYG{p}{:}
+            \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{user\PYGZus{}connections}\PYG{p}{[}\PYG{n}{user\PYGZus{}id}\PYG{p}{]}\PYG{o}{.}\PYG{n}{add}\PYG{p}{(}\PYG{n}{channel\PYGZus{}name}\PYG{p}{)}
+            \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{metrics}\PYG{o}{.}\PYG{n}{authenticated\PYGZus{}connections} \PYG{o}{+}\PYG{o}{=} \PYG{l+m+mi}{1}
+            \PYG{k}{await} \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{\PYGZus{}deliver\PYGZus{}queued\PYGZus{}messages}\PYG{p}{(}\PYG{n}{user\PYGZus{}id}\PYG{p}{,} \PYG{n}{channel\PYGZus{}name}\PYG{p}{)}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{metrics}\PYG{o}{.}\PYG{n}{total\PYGZus{}connections} \PYG{o}{+}\PYG{o}{=} \PYG{l+m+mi}{1}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{metrics}\PYG{o}{.}\PYG{n}{active\PYGZus{}connections} \PYG{o}{+}\PYG{o}{=} \PYG{l+m+mi}{1}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{metrics}\PYG{o}{.}\PYG{n}{connections\PYGZus{}by\PYGZus{}type}\PYG{p}{[}\PYG{n}{consumer\PYGZus{}type}\PYG{p}{]} \PYG{o}{+}\PYG{o}{=} \PYG{l+m+mi}{1}
+        \PYG{k}{return} \PYG{k+kc}{True}
+
+    \PYG{k}{async} \PYG{k}{def}\PYG{+w}{ }\PYG{n+nf}{unregister\PYGZus{}connection}\PYG{p}{(}\PYG{n+nb+bp}{self}\PYG{p}{,} \PYG{n}{channel\PYGZus{}name}\PYG{p}{:} \PYG{n+nb}{str}\PYG{p}{)}\PYG{p}{:}
+        \PYG{n}{connection\PYGZus{}info} \PYG{o}{=} \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{connections}\PYG{o}{.}\PYG{n}{get}\PYG{p}{(}\PYG{n}{channel\PYGZus{}name}\PYG{p}{)}
+        \PYG{k}{if} \PYG{o+ow}{not} \PYG{n}{connection\PYGZus{}info}\PYG{p}{:}
+            \PYG{k}{return}
+        \PYG{k}{if} \PYG{n}{connection\PYGZus{}info}\PYG{o}{.}\PYG{n}{user\PYGZus{}id}\PYG{p}{:}
+            \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{user\PYGZus{}connections}\PYG{p}{[}\PYG{n}{connection\PYGZus{}info}\PYG{o}{.}\PYG{n}{user\PYGZus{}id}\PYG{p}{]}\PYG{o}{.}\PYG{n}{discard}\PYG{p}{(}\PYG{n}{channel\PYGZus{}name}\PYG{p}{)}
+            \PYG{k}{if} \PYG{o+ow}{not} \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{user\PYGZus{}connections}\PYG{p}{[}\PYG{n}{connection\PYGZus{}info}\PYG{o}{.}\PYG{n}{user\PYGZus{}id}\PYG{p}{]}\PYG{p}{:}
+                \PYG{k}{del} \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{user\PYGZus{}connections}\PYG{p}{[}\PYG{n}{connection\PYGZus{}info}\PYG{o}{.}\PYG{n}{user\PYGZus{}id}\PYG{p}{]}
+            \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{metrics}\PYG{o}{.}\PYG{n}{authenticated\PYGZus{}connections} \PYG{o}{\PYGZhy{}}\PYG{o}{=} \PYG{l+m+mi}{1}
+        \PYG{k}{for} \PYG{n}{group} \PYG{o+ow}{in} \PYG{n}{connection\PYGZus{}info}\PYG{o}{.}\PYG{n}{subscription\PYGZus{}groups}\PYG{p}{:}
+            \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{connection\PYGZus{}groups}\PYG{p}{[}\PYG{n}{group}\PYG{p}{]}\PYG{o}{.}\PYG{n}{discard}\PYG{p}{(}\PYG{n}{channel\PYGZus{}name}\PYG{p}{)}
+            \PYG{k}{if} \PYG{o+ow}{not} \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{connection\PYGZus{}groups}\PYG{p}{[}\PYG{n}{group}\PYG{p}{]}\PYG{p}{:}
+                \PYG{k}{del} \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{connection\PYGZus{}groups}\PYG{p}{[}\PYG{n}{group}\PYG{p}{]}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{metrics}\PYG{o}{.}\PYG{n}{active\PYGZus{}connections} \PYG{o}{\PYGZhy{}}\PYG{o}{=} \PYG{l+m+mi}{1}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{metrics}\PYG{o}{.}\PYG{n}{connections\PYGZus{}by\PYGZus{}type}\PYG{p}{[}\PYG{n}{connection\PYGZus{}info}\PYG{o}{.}\PYG{n}{consumer\PYGZus{}type}\PYG{p}{]} \PYG{o}{\PYGZhy{}}\PYG{o}{=} \PYG{l+m+mi}{1}
+        \PYG{n}{duration} \PYG{o}{=} \PYG{p}{(}\PYG{n}{timezone}\PYG{o}{.}\PYG{n}{now}\PYG{p}{(}\PYG{p}{)} \PYG{o}{\PYGZhy{}} \PYG{n}{connection\PYGZus{}info}\PYG{o}{.}\PYG{n}{connected\PYGZus{}at}\PYG{p}{)}\PYG{o}{.}\PYG{n}{total\PYGZus{}seconds}\PYG{p}{(}\PYG{p}{)}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{metrics}\PYG{o}{.}\PYG{n}{avg\PYGZus{}connection\PYGZus{}duration} \PYG{o}{=} \PYG{p}{(}
+            \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{metrics}\PYG{o}{.}\PYG{n}{avg\PYGZus{}connection\PYGZus{}duration} \PYG{o}{*} \PYG{l+m+mf}{0.9} \PYG{o}{+} \PYG{n}{duration} \PYG{o}{*} \PYG{l+m+mf}{0.1}
+        \PYG{p}{)}
+        \PYG{k}{del} \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{connections}\PYG{p}{[}\PYG{n}{channel\PYGZus{}name}\PYG{p}{]}
+
+    \PYG{c+c1}{\PYGZsh{} ... (other methods from ConnectionManager)}
+
+\PYG{n}{connection\PYGZus{}manager} \PYG{o}{=} \PYG{n}{ConnectionManager}\PYG{p}{(}\PYG{p}{)}
+\end{MintedVerbatim}

@@ -1,0 +1,66 @@
+\begin{MintedVerbatim}[commandchars=\\\{\}]
+\PYG{k+kn}{import}\PYG{+w}{ }\PYG{n+nn}{asyncio}
+\PYG{k+kn}{import}\PYG{+w}{ }\PYG{n+nn}{logging}
+\PYG{k+kn}{from}\PYG{+w}{ }\PYG{n+nn}{typing}\PYG{+w}{ }\PYG{k+kn}{import} \PYG{n}{Dict}\PYG{p}{,} \PYG{n}{List}\PYG{p}{,} \PYG{n}{Optional}\PYG{p}{,} \PYG{n}{Set}
+\PYG{k+kn}{from}\PYG{+w}{ }\PYG{n+nn}{decimal}\PYG{+w}{ }\PYG{k+kn}{import} \PYG{n}{Decimal}
+\PYG{k+kn}{from}\PYG{+w}{ }\PYG{n+nn}{django}\PYG{n+nn}{.}\PYG{n+nn}{core}\PYG{n+nn}{.}\PYG{n+nn}{cache}\PYG{+w}{ }\PYG{k+kn}{import} \PYG{n}{cache}
+\PYG{k+kn}{from}\PYG{+w}{ }\PYG{n+nn}{.}\PYG{n+nn}{common}\PYG{+w}{ }\PYG{k+kn}{import} \PYG{n}{MarketDataPoint}\PYG{p}{,} \PYG{n}{StreamStatus}\PYG{p}{,} \PYG{n}{DataQuality}
+
+\PYG{n}{logger} \PYG{o}{=} \PYG{n}{logging}\PYG{o}{.}\PYG{n}{getLogger}\PYG{p}{(}\PYG{n+nv+vm}{\PYGZus{}\PYGZus{}name\PYGZus{}\PYGZus{}}\PYG{p}{)}
+
+\PYG{k}{class}\PYG{+w}{ }\PYG{n+nc}{CircuitBreaker}\PYG{p}{:}
+    \PYG{k}{def}\PYG{+w}{ }\PYG{n+nf+fm}{\PYGZus{}\PYGZus{}init\PYGZus{}\PYGZus{}}\PYG{p}{(}\PYG{n+nb+bp}{self}\PYG{p}{,} \PYG{n}{failure\PYGZus{}threshold}\PYG{p}{:} \PYG{n+nb}{int} \PYG{o}{=} \PYG{l+m+mi}{5}\PYG{p}{,} \PYG{n}{recovery\PYGZus{}timeout}\PYG{p}{:} \PYG{n+nb}{int} \PYG{o}{=} \PYG{l+m+mi}{60}\PYG{p}{)}\PYG{p}{:}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{failure\PYGZus{}threshold} \PYG{o}{=} \PYG{n}{failure\PYGZus{}threshold}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{recovery\PYGZus{}timeout} \PYG{o}{=} \PYG{n}{recovery\PYGZus{}timeout}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{failure\PYGZus{}count} \PYG{o}{=} \PYG{l+m+mi}{0}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{last\PYGZus{}failure\PYGZus{}time} \PYG{o}{=} \PYG{k+kc}{None}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{state} \PYG{o}{=} \PYG{l+s+s2}{\PYGZdq{}}\PYG{l+s+s2}{CLOSED}\PYG{l+s+s2}{\PYGZdq{}}
+    \PYG{c+c1}{\PYGZsh{} ... (implementation from service.py)}
+
+\PYG{k}{class}\PYG{+w}{ }\PYG{n+nc}{CacheManager}\PYG{p}{:}
+    \PYG{k}{def}\PYG{+w}{ }\PYG{n+nf+fm}{\PYGZus{}\PYGZus{}init\PYGZus{}\PYGZus{}}\PYG{p}{(}\PYG{n+nb+bp}{self}\PYG{p}{,} \PYG{n}{cache\PYGZus{}prefix}\PYG{p}{:} \PYG{n+nb}{str} \PYG{o}{=} \PYG{l+s+s2}{\PYGZdq{}}\PYG{l+s+s2}{streaming}\PYG{l+s+s2}{\PYGZdq{}}\PYG{p}{)}\PYG{p}{:}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{cache\PYGZus{}prefix} \PYG{o}{=} \PYG{n}{cache\PYGZus{}prefix}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{default\PYGZus{}ttl} \PYG{o}{=} \PYG{l+m+mi}{300}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{high\PYGZus{}frequency\PYGZus{}ttl} \PYG{o}{=} \PYG{l+m+mi}{30}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{metrics} \PYG{o}{=} \PYG{p}{\PYGZob{}}\PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{hits}\PYG{l+s+s1}{\PYGZsq{}}\PYG{p}{:} \PYG{l+m+mi}{0}\PYG{p}{,} \PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{misses}\PYG{l+s+s1}{\PYGZsq{}}\PYG{p}{:} \PYG{l+m+mi}{0}\PYG{p}{,} \PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{sets}\PYG{l+s+s1}{\PYGZsq{}}\PYG{p}{:} \PYG{l+m+mi}{0}\PYG{p}{\PYGZcb{}}
+    \PYG{c+c1}{\PYGZsh{} ... (implementation from service.py)}
+
+\PYG{k}{class}\PYG{+w}{ }\PYG{n+nc}{DataFeedManager}\PYG{p}{:}
+    \PYG{k}{def}\PYG{+w}{ }\PYG{n+nf+fm}{\PYGZus{}\PYGZus{}init\PYGZus{}\PYGZus{}}\PYG{p}{(}\PYG{n+nb+bp}{self}\PYG{p}{)}\PYG{p}{:}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{yfinance} \PYG{o}{=} \PYG{n}{YFinanceService}\PYG{p}{(}\PYG{p}{)}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{alpha\PYGZus{}vantage} \PYG{o}{=} \PYG{n}{AlphaVantageService}\PYG{p}{(}\PYG{p}{)}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{circuit\PYGZus{}breakers} \PYG{o}{=} \PYG{p}{\PYGZob{}}
+            \PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{yfinance}\PYG{l+s+s1}{\PYGZsq{}}\PYG{p}{:} \PYG{n}{CircuitBreaker}\PYG{p}{(}\PYG{n}{failure\PYGZus{}threshold}\PYG{o}{=}\PYG{l+m+mi}{3}\PYG{p}{,} \PYG{n}{recovery\PYGZus{}timeout}\PYG{o}{=}\PYG{l+m+mi}{30}\PYG{p}{)}\PYG{p}{,}
+            \PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{alphavantage}\PYG{l+s+s1}{\PYGZsq{}}\PYG{p}{:} \PYG{n}{CircuitBreaker}\PYG{p}{(}\PYG{n}{failure\PYGZus{}threshold}\PYG{o}{=}\PYG{l+m+mi}{2}\PYG{p}{,} \PYG{n}{recovery\PYGZus{}timeout}\PYG{o}{=}\PYG{l+m+mi}{60}\PYG{p}{)}
+        \PYG{p}{\PYGZcb{}}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{primary\PYGZus{}source} \PYG{o}{=} \PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{yfinance}\PYG{l+s+s1}{\PYGZsq{}}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{fallback\PYGZus{}source} \PYG{o}{=} \PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{alphavantage}\PYG{l+s+s1}{\PYGZsq{}}
+    \PYG{c+c1}{\PYGZsh{} ... (implementation from service.py)}
+
+\PYG{k}{class}\PYG{+w}{ }\PYG{n+nc}{StreamingEngine}\PYG{p}{:}
+    \PYG{k}{def}\PYG{+w}{ }\PYG{n+nf+fm}{\PYGZus{}\PYGZus{}init\PYGZus{}\PYGZus{}}\PYG{p}{(}\PYG{n+nb+bp}{self}\PYG{p}{,} \PYG{n}{max\PYGZus{}symbols}\PYG{p}{:} \PYG{n+nb}{int} \PYG{o}{=} \PYG{l+m+mi}{100}\PYG{p}{,} \PYG{n}{update\PYGZus{}interval}\PYG{p}{:} \PYG{n+nb}{float} \PYG{o}{=} \PYG{l+m+mf}{1.0}\PYG{p}{)}\PYG{p}{:}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{max\PYGZus{}symbols} \PYG{o}{=} \PYG{n}{max\PYGZus{}symbols}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{update\PYGZus{}interval} \PYG{o}{=} \PYG{n}{update\PYGZus{}interval}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{status} \PYG{o}{=} \PYG{n}{StreamStatus}\PYG{o}{.}\PYG{n}{STOPPED}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{cache\PYGZus{}manager} \PYG{o}{=} \PYG{n}{CacheManager}\PYG{p}{(}\PYG{p}{)}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{data\PYGZus{}feed\PYGZus{}manager} \PYG{o}{=} \PYG{n}{DataFeedManager}\PYG{p}{(}\PYG{p}{)}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{channel\PYGZus{}layer} \PYG{o}{=} \PYG{n}{get\PYGZus{}channel\PYGZus{}layer}\PYG{p}{(}\PYG{p}{)}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{active\PYGZus{}symbols}\PYG{p}{:} \PYG{n}{Set}\PYG{p}{[}\PYG{n+nb}{str}\PYG{p}{]} \PYG{o}{=} \PYG{n+nb}{set}\PYG{p}{(}\PYG{p}{)}
+        \PYG{c+c1}{\PYGZsh{} ... (rest of the attributes)}
+
+    \PYG{k}{async} \PYG{k}{def}\PYG{+w}{ }\PYG{n+nf}{start}\PYG{p}{(}\PYG{n+nb+bp}{self}\PYG{p}{)} \PYG{o}{\PYGZhy{}}\PYG{o}{\PYGZgt{}} \PYG{n+nb}{bool}\PYG{p}{:}
+        \PYG{k}{if} \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{status} \PYG{o}{==} \PYG{n}{StreamStatus}\PYG{o}{.}\PYG{n}{RUNNING}\PYG{p}{:}
+            \PYG{k}{return} \PYG{k+kc}{True}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{status} \PYG{o}{=} \PYG{n}{StreamStatus}\PYG{o}{.}\PYG{n}{STARTING}
+        \PYG{k}{await} \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{\PYGZus{}initialize\PYGZus{}ta\PYGZus{}calculators}\PYG{p}{(}\PYG{p}{)}
+        \PYG{n}{main\PYGZus{}task} \PYG{o}{=} \PYG{n}{asyncio}\PYG{o}{.}\PYG{n}{create\PYGZus{}task}\PYG{p}{(}\PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{\PYGZus{}main\PYGZus{}streaming\PYGZus{}loop}\PYG{p}{(}\PYG{p}{)}\PYG{p}{)}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{\PYGZus{}running\PYGZus{}tasks}\PYG{o}{.}\PYG{n}{add}\PYG{p}{(}\PYG{n}{main\PYGZus{}task}\PYG{p}{)}
+        \PYG{n}{health\PYGZus{}task} \PYG{o}{=} \PYG{n}{asyncio}\PYG{o}{.}\PYG{n}{create\PYGZus{}task}\PYG{p}{(}\PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{\PYGZus{}health\PYGZus{}monitor\PYGZus{}loop}\PYG{p}{(}\PYG{p}{)}\PYG{p}{)}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{\PYGZus{}running\PYGZus{}tasks}\PYG{o}{.}\PYG{n}{add}\PYG{p}{(}\PYG{n}{health\PYGZus{}task}\PYG{p}{)}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{status} \PYG{o}{=} \PYG{n}{StreamStatus}\PYG{o}{.}\PYG{n}{RUNNING}
+        \PYG{k}{return} \PYG{k+kc}{True}
+
+    \PYG{c+c1}{\PYGZsh{} ... (other methods from StreamingEngine)}
+
+\PYG{n}{streaming\PYGZus{}engine} \PYG{o}{=} \PYG{n}{StreamingEngine}\PYG{p}{(}\PYG{p}{)}
+\end{MintedVerbatim}

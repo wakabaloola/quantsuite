@@ -1,0 +1,238 @@
+\begin{MintedVerbatim}[commandchars=\\\{\}]
+\PYG{k+kn}{import}\PYG{+w}{ }\PYG{n+nn}{logging}
+\PYG{k+kn}{from}\PYG{+w}{ }\PYG{n+nn}{typing}\PYG{+w}{ }\PYG{k+kn}{import} \PYG{n}{List}\PYG{p}{,} \PYG{n}{Tuple}\PYG{p}{,} \PYG{n}{Optional}
+\PYG{k+kn}{from}\PYG{+w}{ }\PYG{n+nn}{decimal}\PYG{+w}{ }\PYG{k+kn}{import} \PYG{n}{Decimal}
+\PYG{k+kn}{from}\PYG{+w}{ }\PYG{n+nn}{django}\PYG{n+nn}{.}\PYG{n+nn}{db}\PYG{+w}{ }\PYG{k+kn}{import} \PYG{n}{transaction}\PYG{p}{,} \PYG{n}{models}
+\PYG{k+kn}{from}\PYG{+w}{ }\PYG{n+nn}{django}\PYG{n+nn}{.}\PYG{n+nn}{utils}\PYG{+w}{ }\PYG{k+kn}{import} \PYG{n}{timezone}
+\PYG{k+kn}{from}\PYG{+w}{ }\PYG{n+nn}{.}\PYG{n+nn}{models}\PYG{+w}{ }\PYG{k+kn}{import} \PYG{p}{(}
+    \PYG{n}{SimulatedOrder}\PYG{p}{,} \PYG{n}{OrderBookLevel}\PYG{p}{,} \PYG{n}{OrderQueue}\PYG{p}{,} \PYG{n}{OrderBook}\PYG{p}{,}
+    \PYG{n}{SimulatedTrade}\PYG{p}{,} \PYG{n}{Fill}\PYG{p}{,} \PYG{n}{OrderSide}\PYG{p}{,} \PYG{n}{OrderStatus}
+\PYG{p}{)}
+
+\PYG{n}{logger} \PYG{o}{=} \PYG{n}{logging}\PYG{o}{.}\PYG{n}{getLogger}\PYG{p}{(}\PYG{n+nv+vm}{\PYGZus{}\PYGZus{}name\PYGZus{}\PYGZus{}}\PYG{p}{)}
+
+\PYG{k}{class}\PYG{+w}{ }\PYG{n+nc}{CentralLimitOrderBook}\PYG{p}{:}
+    \PYG{k}{def}\PYG{+w}{ }\PYG{n+nf+fm}{\PYGZus{}\PYGZus{}init\PYGZus{}\PYGZus{}}\PYG{p}{(}\PYG{n+nb+bp}{self}\PYG{p}{,} \PYG{n}{instrument}\PYG{p}{)}\PYG{p}{:}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{instrument} \PYG{o}{=} \PYG{n}{instrument}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book} \PYG{o}{=} \PYG{n}{instrument}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{logger} \PYG{o}{=} \PYG{n}{logging}\PYG{o}{.}\PYG{n}{getLogger}\PYG{p}{(}\PYG{l+s+sa}{f}\PYG{l+s+s2}{\PYGZdq{}}\PYG{l+s+si}{\PYGZob{}}\PYG{n+nv+vm}{\PYGZus{}\PYGZus{}name\PYGZus{}\PYGZus{}}\PYG{l+s+si}{\PYGZcb{}}\PYG{l+s+s2}{.CLOB.}\PYG{l+s+si}{\PYGZob{}}\PYG{n}{instrument}\PYG{o}{.}\PYG{n}{real\PYGZus{}ticker}\PYG{o}{.}\PYG{n}{symbol}\PYG{l+s+si}{\PYGZcb{}}\PYG{l+s+s2}{\PYGZdq{}}\PYG{p}{)}
+
+    \PYG{k}{def}\PYG{+w}{ }\PYG{n+nf}{submit\PYGZus{}order}\PYG{p}{(}\PYG{n+nb+bp}{self}\PYG{p}{,} \PYG{n}{order}\PYG{p}{:} \PYG{n}{SimulatedOrder}\PYG{p}{)} \PYG{o}{\PYGZhy{}}\PYG{o}{\PYGZgt{}} \PYG{n}{Tuple}\PYG{p}{[}\PYG{n}{List}\PYG{p}{[}\PYG{n+nb}{dict}\PYG{p}{]}\PYG{p}{,} \PYG{n+nb}{int}\PYG{p}{]}\PYG{p}{:}
+        \PYG{k}{with} \PYG{n}{transaction}\PYG{o}{.}\PYG{n}{atomic}\PYG{p}{(}\PYG{p}{)}\PYG{p}{:}
+            \PYG{k}{if} \PYG{n}{order}\PYG{o}{.}\PYG{n}{order\PYGZus{}type} \PYG{o}{==} \PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{MARKET}\PYG{l+s+s1}{\PYGZsq{}}\PYG{p}{:}
+                \PYG{k}{return} \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{\PYGZus{}process\PYGZus{}market\PYGZus{}order}\PYG{p}{(}\PYG{n}{order}\PYG{p}{)}
+            \PYG{k}{elif} \PYG{n}{order}\PYG{o}{.}\PYG{n}{order\PYGZus{}type} \PYG{o}{==} \PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{LIMIT}\PYG{l+s+s1}{\PYGZsq{}}\PYG{p}{:}
+                \PYG{k}{return} \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{\PYGZus{}process\PYGZus{}limit\PYGZus{}order}\PYG{p}{(}\PYG{n}{order}\PYG{p}{)}
+            \PYG{k}{else}\PYG{p}{:}
+                \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{logger}\PYG{o}{.}\PYG{n}{warning}\PYG{p}{(}\PYG{l+s+sa}{f}\PYG{l+s+s2}{\PYGZdq{}}\PYG{l+s+s2}{Unsupported order type: }\PYG{l+s+si}{\PYGZob{}}\PYG{n}{order}\PYG{o}{.}\PYG{n}{order\PYGZus{}type}\PYG{l+s+si}{\PYGZcb{}}\PYG{l+s+s2}{\PYGZdq{}}\PYG{p}{)}
+                \PYG{k}{return} \PYG{p}{[}\PYG{p}{]}\PYG{p}{,} \PYG{n}{order}\PYG{o}{.}\PYG{n}{quantity}
+
+    \PYG{k}{def}\PYG{+w}{ }\PYG{n+nf}{\PYGZus{}process\PYGZus{}market\PYGZus{}order}\PYG{p}{(}\PYG{n+nb+bp}{self}\PYG{p}{,} \PYG{n}{order}\PYG{p}{:} \PYG{n}{SimulatedOrder}\PYG{p}{)} \PYG{o}{\PYGZhy{}}\PYG{o}{\PYGZgt{}} \PYG{n}{Tuple}\PYG{p}{[}\PYG{n}{List}\PYG{p}{[}\PYG{n+nb}{dict}\PYG{p}{]}\PYG{p}{,} \PYG{n+nb}{int}\PYG{p}{]}\PYG{p}{:}
+        \PYG{n}{trades} \PYG{o}{=} \PYG{p}{[}\PYG{p}{]}
+        \PYG{n}{remaining\PYGZus{}qty} \PYG{o}{=} \PYG{n}{order}\PYG{o}{.}\PYG{n}{quantity}
+
+        \PYG{k}{if} \PYG{n}{order}\PYG{o}{.}\PYG{n}{side} \PYG{o}{==} \PYG{n}{OrderSide}\PYG{o}{.}\PYG{n}{BUY}\PYG{p}{:}
+            \PYG{n}{target\PYGZus{}levels} \PYG{o}{=} \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{levels}\PYG{o}{.}\PYG{n}{filter}\PYG{p}{(}
+                \PYG{n}{side}\PYG{o}{=}\PYG{n}{OrderSide}\PYG{o}{.}\PYG{n}{SELL}
+            \PYG{p}{)}\PYG{o}{.}\PYG{n}{exclude}\PYG{p}{(}
+                \PYG{n}{quantity}\PYG{o}{=}\PYG{l+m+mi}{0}
+            \PYG{p}{)}\PYG{o}{.}\PYG{n}{order\PYGZus{}by}\PYG{p}{(}\PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{price}\PYG{l+s+s1}{\PYGZsq{}}\PYG{p}{)}
+        \PYG{k}{else}\PYG{p}{:}
+            \PYG{n}{target\PYGZus{}levels} \PYG{o}{=} \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{levels}\PYG{o}{.}\PYG{n}{filter}\PYG{p}{(}
+                \PYG{n}{side}\PYG{o}{=}\PYG{n}{OrderSide}\PYG{o}{.}\PYG{n}{BUY}
+            \PYG{p}{)}\PYG{o}{.}\PYG{n}{exclude}\PYG{p}{(}
+                \PYG{n}{quantity}\PYG{o}{=}\PYG{l+m+mi}{0}
+            \PYG{p}{)}\PYG{o}{.}\PYG{n}{order\PYGZus{}by}\PYG{p}{(}\PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{\PYGZhy{}price}\PYG{l+s+s1}{\PYGZsq{}}\PYG{p}{)}
+
+        \PYG{k}{for} \PYG{n}{level} \PYG{o+ow}{in} \PYG{n}{target\PYGZus{}levels}\PYG{p}{:}
+            \PYG{k}{if} \PYG{n}{remaining\PYGZus{}qty} \PYG{o}{\PYGZlt{}}\PYG{o}{=} \PYG{l+m+mi}{0}\PYG{p}{:}
+                \PYG{k}{break}
+            \PYG{n}{level\PYGZus{}trades}\PYG{p}{,} \PYG{n}{remaining\PYGZus{}qty} \PYG{o}{=} \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{\PYGZus{}match\PYGZus{}against\PYGZus{}level}\PYG{p}{(}
+                \PYG{n}{order}\PYG{p}{,} \PYG{n}{level}\PYG{p}{,} \PYG{n}{remaining\PYGZus{}qty}
+            \PYG{p}{)}
+            \PYG{n}{trades}\PYG{o}{.}\PYG{n}{extend}\PYG{p}{(}\PYG{n}{level\PYGZus{}trades}\PYG{p}{)}
+            \PYG{n}{level}\PYG{o}{.}\PYG{n}{refresh\PYGZus{}from\PYGZus{}db}\PYG{p}{(}\PYG{p}{)}
+            \PYG{k}{if} \PYG{n}{level}\PYG{o}{.}\PYG{n}{quantity} \PYG{o}{==} \PYG{l+m+mi}{0}\PYG{p}{:}
+                \PYG{n}{level}\PYG{o}{.}\PYG{n}{delete}\PYG{p}{(}\PYG{p}{)}
+
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{\PYGZus{}update\PYGZus{}best\PYGZus{}quotes}\PYG{p}{(}\PYG{p}{)}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{logger}\PYG{o}{.}\PYG{n}{info}\PYG{p}{(}\PYG{l+s+sa}{f}\PYG{l+s+s2}{\PYGZdq{}}\PYG{l+s+s2}{Market order }\PYG{l+s+si}{\PYGZob{}}\PYG{n}{order}\PYG{o}{.}\PYG{n}{order\PYGZus{}id}\PYG{l+s+si}{\PYGZcb{}}\PYG{l+s+s2}{: }\PYG{l+s+si}{\PYGZob{}}\PYG{n+nb}{len}\PYG{p}{(}\PYG{n}{trades}\PYG{p}{)}\PYG{l+s+si}{\PYGZcb{}}\PYG{l+s+s2}{ trades, }\PYG{l+s+si}{\PYGZob{}}\PYG{n}{remaining\PYGZus{}qty}\PYG{l+s+si}{\PYGZcb{}}\PYG{l+s+s2}{ remaining}\PYG{l+s+s2}{\PYGZdq{}}\PYG{p}{)}
+        \PYG{k}{return} \PYG{n}{trades}\PYG{p}{,} \PYG{n}{remaining\PYGZus{}qty}
+
+    \PYG{k}{def}\PYG{+w}{ }\PYG{n+nf}{\PYGZus{}process\PYGZus{}limit\PYGZus{}order}\PYG{p}{(}\PYG{n+nb+bp}{self}\PYG{p}{,} \PYG{n}{order}\PYG{p}{:} \PYG{n}{SimulatedOrder}\PYG{p}{)} \PYG{o}{\PYGZhy{}}\PYG{o}{\PYGZgt{}} \PYG{n}{Tuple}\PYG{p}{[}\PYG{n}{List}\PYG{p}{[}\PYG{n+nb}{dict}\PYG{p}{]}\PYG{p}{,} \PYG{n+nb}{int}\PYG{p}{]}\PYG{p}{:}
+        \PYG{n}{trades} \PYG{o}{=} \PYG{p}{[}\PYG{p}{]}
+        \PYG{n}{remaining\PYGZus{}qty} \PYG{o}{=} \PYG{n}{order}\PYG{o}{.}\PYG{n}{quantity}
+
+        \PYG{k}{if} \PYG{n}{order}\PYG{o}{.}\PYG{n}{side} \PYG{o}{==} \PYG{n}{OrderSide}\PYG{o}{.}\PYG{n}{BUY}\PYG{p}{:}
+            \PYG{n}{matching\PYGZus{}levels} \PYG{o}{=} \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{levels}\PYG{o}{.}\PYG{n}{filter}\PYG{p}{(}
+                \PYG{n}{side}\PYG{o}{=}\PYG{n}{OrderSide}\PYG{o}{.}\PYG{n}{SELL}\PYG{p}{,}
+                \PYG{n}{price\PYGZus{}\PYGZus{}lte}\PYG{o}{=}\PYG{n}{order}\PYG{o}{.}\PYG{n}{price}
+            \PYG{p}{)}\PYG{o}{.}\PYG{n}{exclude}\PYG{p}{(}
+                \PYG{n}{quantity}\PYG{o}{=}\PYG{l+m+mi}{0}
+            \PYG{p}{)}\PYG{o}{.}\PYG{n}{order\PYGZus{}by}\PYG{p}{(}\PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{price}\PYG{l+s+s1}{\PYGZsq{}}\PYG{p}{)}
+        \PYG{k}{else}\PYG{p}{:}
+            \PYG{n}{matching\PYGZus{}levels} \PYG{o}{=} \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{levels}\PYG{o}{.}\PYG{n}{filter}\PYG{p}{(}
+                \PYG{n}{side}\PYG{o}{=}\PYG{n}{OrderSide}\PYG{o}{.}\PYG{n}{BUY}\PYG{p}{,}
+                \PYG{n}{price\PYGZus{}\PYGZus{}gte}\PYG{o}{=}\PYG{n}{order}\PYG{o}{.}\PYG{n}{price}
+            \PYG{p}{)}\PYG{o}{.}\PYG{n}{exclude}\PYG{p}{(}
+                \PYG{n}{quantity}\PYG{o}{=}\PYG{l+m+mi}{0}
+            \PYG{p}{)}\PYG{o}{.}\PYG{n}{order\PYGZus{}by}\PYG{p}{(}\PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{\PYGZhy{}price}\PYG{l+s+s1}{\PYGZsq{}}\PYG{p}{)}
+
+        \PYG{k}{for} \PYG{n}{level} \PYG{o+ow}{in} \PYG{n}{matching\PYGZus{}levels}\PYG{p}{:}
+            \PYG{k}{if} \PYG{n}{remaining\PYGZus{}qty} \PYG{o}{\PYGZlt{}}\PYG{o}{=} \PYG{l+m+mi}{0}\PYG{p}{:}
+                \PYG{k}{break}
+            \PYG{n}{level\PYGZus{}trades}\PYG{p}{,} \PYG{n}{remaining\PYGZus{}qty} \PYG{o}{=} \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{\PYGZus{}match\PYGZus{}against\PYGZus{}level}\PYG{p}{(}
+                \PYG{n}{order}\PYG{p}{,} \PYG{n}{level}\PYG{p}{,} \PYG{n}{remaining\PYGZus{}qty}
+            \PYG{p}{)}
+            \PYG{n}{trades}\PYG{o}{.}\PYG{n}{extend}\PYG{p}{(}\PYG{n}{level\PYGZus{}trades}\PYG{p}{)}
+            \PYG{n}{level}\PYG{o}{.}\PYG{n}{refresh\PYGZus{}from\PYGZus{}db}\PYG{p}{(}\PYG{p}{)}
+            \PYG{k}{if} \PYG{n}{level}\PYG{o}{.}\PYG{n}{quantity} \PYG{o}{==} \PYG{l+m+mi}{0}\PYG{p}{:}
+                \PYG{n}{level}\PYG{o}{.}\PYG{n}{delete}\PYG{p}{(}\PYG{p}{)}
+
+        \PYG{k}{if} \PYG{n}{remaining\PYGZus{}qty} \PYG{o}{\PYGZgt{}} \PYG{l+m+mi}{0}\PYG{p}{:}
+            \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{\PYGZus{}add\PYGZus{}to\PYGZus{}order\PYGZus{}book}\PYG{p}{(}\PYG{n}{order}\PYG{p}{,} \PYG{n}{remaining\PYGZus{}qty}\PYG{p}{)}
+
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{\PYGZus{}update\PYGZus{}best\PYGZus{}quotes}\PYG{p}{(}\PYG{p}{)}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{logger}\PYG{o}{.}\PYG{n}{info}\PYG{p}{(}\PYG{l+s+sa}{f}\PYG{l+s+s2}{\PYGZdq{}}\PYG{l+s+s2}{Limit order }\PYG{l+s+si}{\PYGZob{}}\PYG{n}{order}\PYG{o}{.}\PYG{n}{order\PYGZus{}id}\PYG{l+s+si}{\PYGZcb{}}\PYG{l+s+s2}{: }\PYG{l+s+si}{\PYGZob{}}\PYG{n+nb}{len}\PYG{p}{(}\PYG{n}{trades}\PYG{p}{)}\PYG{l+s+si}{\PYGZcb{}}\PYG{l+s+s2}{ trades, }\PYG{l+s+si}{\PYGZob{}}\PYG{n}{remaining\PYGZus{}qty}\PYG{l+s+si}{\PYGZcb{}}\PYG{l+s+s2}{ added to book}\PYG{l+s+s2}{\PYGZdq{}}\PYG{p}{)}
+        \PYG{k}{return} \PYG{n}{trades}\PYG{p}{,} \PYG{n}{remaining\PYGZus{}qty}
+
+    \PYG{k}{def}\PYG{+w}{ }\PYG{n+nf}{\PYGZus{}match\PYGZus{}against\PYGZus{}level}\PYG{p}{(}\PYG{n+nb+bp}{self}\PYG{p}{,} \PYG{n}{incoming\PYGZus{}order}\PYG{p}{:} \PYG{n}{SimulatedOrder}\PYG{p}{,}
+                           \PYG{n}{level}\PYG{p}{:} \PYG{n}{OrderBookLevel}\PYG{p}{,} \PYG{n}{quantity}\PYG{p}{:} \PYG{n+nb}{int}\PYG{p}{)} \PYG{o}{\PYGZhy{}}\PYG{o}{\PYGZgt{}} \PYG{n}{Tuple}\PYG{p}{[}\PYG{n}{List}\PYG{p}{[}\PYG{n+nb}{dict}\PYG{p}{]}\PYG{p}{,} \PYG{n+nb}{int}\PYG{p}{]}\PYG{p}{:}
+        \PYG{n}{trades} \PYG{o}{=} \PYG{p}{[}\PYG{p}{]}
+        \PYG{n}{remaining} \PYG{o}{=} \PYG{n}{quantity}
+        \PYG{n}{order\PYGZus{}queues} \PYG{o}{=} \PYG{n}{level}\PYG{o}{.}\PYG{n}{order\PYGZus{}queue}\PYG{o}{.}\PYG{n}{filter}\PYG{p}{(}
+            \PYG{n}{remaining\PYGZus{}quantity\PYGZus{}\PYGZus{}gt}\PYG{o}{=}\PYG{l+m+mi}{0}
+        \PYG{p}{)}\PYG{o}{.}\PYG{n}{order\PYGZus{}by}\PYG{p}{(}\PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{queue\PYGZus{}position}\PYG{l+s+s1}{\PYGZsq{}}\PYG{p}{)}
+
+        \PYG{k}{for} \PYG{n}{queue\PYGZus{}entry} \PYG{o+ow}{in} \PYG{n}{order\PYGZus{}queues}\PYG{p}{:}
+            \PYG{k}{if} \PYG{n}{remaining} \PYG{o}{\PYGZlt{}}\PYG{o}{=} \PYG{l+m+mi}{0}\PYG{p}{:}
+                \PYG{k}{break}
+            \PYG{n}{resting\PYGZus{}order} \PYG{o}{=} \PYG{n}{queue\PYGZus{}entry}\PYG{o}{.}\PYG{n}{order}
+            \PYG{n}{available\PYGZus{}qty} \PYG{o}{=} \PYG{n+nb}{min}\PYG{p}{(}\PYG{n}{remaining}\PYG{p}{,} \PYG{n}{queue\PYGZus{}entry}\PYG{o}{.}\PYG{n}{remaining\PYGZus{}quantity}\PYG{p}{)}
+            \PYG{n}{trade\PYGZus{}data} \PYG{o}{=} \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{\PYGZus{}execute\PYGZus{}trade\PYGZus{}between\PYGZus{}orders}\PYG{p}{(}
+                \PYG{n}{incoming\PYGZus{}order}\PYG{p}{,} \PYG{n}{resting\PYGZus{}order}\PYG{p}{,} \PYG{n}{available\PYGZus{}qty}\PYG{p}{,} \PYG{n}{level}\PYG{o}{.}\PYG{n}{price}
+            \PYG{p}{)}
+            \PYG{n}{trades}\PYG{o}{.}\PYG{n}{append}\PYG{p}{(}\PYG{n}{trade\PYGZus{}data}\PYG{p}{)}
+            \PYG{n}{queue\PYGZus{}entry}\PYG{o}{.}\PYG{n}{remaining\PYGZus{}quantity} \PYG{o}{\PYGZhy{}}\PYG{o}{=} \PYG{n}{available\PYGZus{}qty}
+            \PYG{n}{remaining} \PYG{o}{\PYGZhy{}}\PYG{o}{=} \PYG{n}{available\PYGZus{}qty}
+            \PYG{k}{if} \PYG{n}{queue\PYGZus{}entry}\PYG{o}{.}\PYG{n}{remaining\PYGZus{}quantity} \PYG{o}{==} \PYG{l+m+mi}{0}\PYG{p}{:}
+                \PYG{n}{queue\PYGZus{}entry}\PYG{o}{.}\PYG{n}{delete}\PYG{p}{(}\PYG{p}{)}
+            \PYG{k}{else}\PYG{p}{:}
+                \PYG{n}{queue\PYGZus{}entry}\PYG{o}{.}\PYG{n}{save}\PYG{p}{(}\PYG{p}{)}
+
+        \PYG{n}{total\PYGZus{}quantity} \PYG{o}{=} \PYG{n}{level}\PYG{o}{.}\PYG{n}{order\PYGZus{}queue}\PYG{o}{.}\PYG{n}{aggregate}\PYG{p}{(}
+            \PYG{n}{total}\PYG{o}{=}\PYG{n}{models}\PYG{o}{.}\PYG{n}{Sum}\PYG{p}{(}\PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{remaining\PYGZus{}quantity}\PYG{l+s+s1}{\PYGZsq{}}\PYG{p}{)}
+        \PYG{p}{)}\PYG{p}{[}\PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{total}\PYG{l+s+s1}{\PYGZsq{}}\PYG{p}{]} \PYG{o+ow}{or} \PYG{l+m+mi}{0}
+        \PYG{n}{level}\PYG{o}{.}\PYG{n}{quantity} \PYG{o}{=} \PYG{n}{total\PYGZus{}quantity}
+        \PYG{n}{level}\PYG{o}{.}\PYG{n}{order\PYGZus{}count} \PYG{o}{=} \PYG{n}{level}\PYG{o}{.}\PYG{n}{order\PYGZus{}queue}\PYG{o}{.}\PYG{n}{count}\PYG{p}{(}\PYG{p}{)}
+        \PYG{n}{level}\PYG{o}{.}\PYG{n}{save}\PYG{p}{(}\PYG{p}{)}
+        \PYG{k}{return} \PYG{n}{trades}\PYG{p}{,} \PYG{n}{remaining}
+
+    \PYG{k}{def}\PYG{+w}{ }\PYG{n+nf}{\PYGZus{}execute\PYGZus{}trade\PYGZus{}between\PYGZus{}orders}\PYG{p}{(}\PYG{n+nb+bp}{self}\PYG{p}{,} \PYG{n}{aggressive\PYGZus{}order}\PYG{p}{:} \PYG{n}{SimulatedOrder}\PYG{p}{,}
+                                    \PYG{n}{passive\PYGZus{}order}\PYG{p}{:} \PYG{n}{SimulatedOrder}\PYG{p}{,}
+                                    \PYG{n}{quantity}\PYG{p}{:} \PYG{n+nb}{int}\PYG{p}{,} \PYG{n}{price}\PYG{p}{:} \PYG{n}{Decimal}\PYG{p}{)} \PYG{o}{\PYGZhy{}}\PYG{o}{\PYGZgt{}} \PYG{n+nb}{dict}\PYG{p}{:}
+        \PYG{n}{buy\PYGZus{}order} \PYG{o}{=} \PYG{n}{aggressive\PYGZus{}order} \PYG{k}{if} \PYG{n}{aggressive\PYGZus{}order}\PYG{o}{.}\PYG{n}{side} \PYG{o}{==} \PYG{n}{OrderSide}\PYG{o}{.}\PYG{n}{BUY} \PYG{k}{else} \PYG{n}{passive\PYGZus{}order}
+        \PYG{n}{sell\PYGZus{}order} \PYG{o}{=} \PYG{n}{passive\PYGZus{}order} \PYG{k}{if} \PYG{n}{aggressive\PYGZus{}order}\PYG{o}{.}\PYG{n}{side} \PYG{o}{==} \PYG{n}{OrderSide}\PYG{o}{.}\PYG{n}{BUY} \PYG{k}{else} \PYG{n}{aggressive\PYGZus{}order}
+        \PYG{n}{trade} \PYG{o}{=} \PYG{n}{SimulatedTrade}\PYG{o}{.}\PYG{n}{objects}\PYG{o}{.}\PYG{n}{create}\PYG{p}{(}
+            \PYG{n}{exchange}\PYG{o}{=}\PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{instrument}\PYG{o}{.}\PYG{n}{exchange}\PYG{p}{,}
+            \PYG{n}{instrument}\PYG{o}{=}\PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{instrument}\PYG{p}{,}
+            \PYG{n}{buy\PYGZus{}order}\PYG{o}{=}\PYG{n}{buy\PYGZus{}order}\PYG{p}{,}
+            \PYG{n}{sell\PYGZus{}order}\PYG{o}{=}\PYG{n}{sell\PYGZus{}order}\PYG{p}{,}
+            \PYG{n}{quantity}\PYG{o}{=}\PYG{n}{quantity}\PYG{p}{,}
+            \PYG{n}{price}\PYG{o}{=}\PYG{n}{price}\PYG{p}{,}
+            \PYG{n}{is\PYGZus{}aggressive}\PYG{o}{=}\PYG{p}{(}\PYG{n}{aggressive\PYGZus{}order}\PYG{o}{.}\PYG{n}{side} \PYG{o}{==} \PYG{n}{OrderSide}\PYG{o}{.}\PYG{n}{BUY}\PYG{p}{)}
+        \PYG{p}{)}
+        \PYG{n}{fee\PYGZus{}rate} \PYG{o}{=} \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{instrument}\PYG{o}{.}\PYG{n}{exchange}\PYG{o}{.}\PYG{n}{trading\PYGZus{}fee\PYGZus{}percentage}
+        \PYG{n}{trade\PYGZus{}value} \PYG{o}{=} \PYG{n}{quantity} \PYG{o}{*} \PYG{n}{price}
+        \PYG{n}{fees} \PYG{o}{=} \PYG{n}{trade\PYGZus{}value} \PYG{o}{*} \PYG{n}{fee\PYGZus{}rate}
+        \PYG{n}{Fill}\PYG{o}{.}\PYG{n}{objects}\PYG{o}{.}\PYG{n}{create}\PYG{p}{(}
+            \PYG{n}{order}\PYG{o}{=}\PYG{n}{aggressive\PYGZus{}order}\PYG{p}{,}
+            \PYG{n}{trade}\PYG{o}{=}\PYG{n}{trade}\PYG{p}{,}
+            \PYG{n}{quantity}\PYG{o}{=}\PYG{n}{quantity}\PYG{p}{,}
+            \PYG{n}{price}\PYG{o}{=}\PYG{n}{price}\PYG{p}{,}
+            \PYG{n}{fees}\PYG{o}{=}\PYG{n}{fees}\PYG{p}{,}
+            \PYG{n}{liquidity\PYGZus{}flag}\PYG{o}{=}\PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{TAKER}\PYG{l+s+s1}{\PYGZsq{}}
+        \PYG{p}{)}
+        \PYG{n}{Fill}\PYG{o}{.}\PYG{n}{objects}\PYG{o}{.}\PYG{n}{create}\PYG{p}{(}
+            \PYG{n}{order}\PYG{o}{=}\PYG{n}{passive\PYGZus{}order}\PYG{p}{,}
+            \PYG{n}{trade}\PYG{o}{=}\PYG{n}{trade}\PYG{p}{,}
+            \PYG{n}{quantity}\PYG{o}{=}\PYG{n}{quantity}\PYG{p}{,}
+            \PYG{n}{price}\PYG{o}{=}\PYG{n}{price}\PYG{p}{,}
+            \PYG{n}{fees}\PYG{o}{=}\PYG{n}{fees}\PYG{p}{,}
+            \PYG{n}{liquidity\PYGZus{}flag}\PYG{o}{=}\PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{MAKER}\PYG{l+s+s1}{\PYGZsq{}}
+        \PYG{p}{)}
+        \PYG{k}{for} \PYG{n}{order} \PYG{o+ow}{in} \PYG{p}{[}\PYG{n}{aggressive\PYGZus{}order}\PYG{p}{,} \PYG{n}{passive\PYGZus{}order}\PYG{p}{]}\PYG{p}{:}
+            \PYG{n}{order}\PYG{o}{.}\PYG{n}{filled\PYGZus{}quantity} \PYG{o}{+}\PYG{o}{=} \PYG{n}{quantity}
+            \PYG{k}{if} \PYG{n}{order}\PYG{o}{.}\PYG{n}{filled\PYGZus{}quantity} \PYG{o}{\PYGZgt{}}\PYG{o}{=} \PYG{n}{order}\PYG{o}{.}\PYG{n}{quantity}\PYG{p}{:}
+                \PYG{n}{order}\PYG{o}{.}\PYG{n}{status} \PYG{o}{=} \PYG{n}{OrderStatus}\PYG{o}{.}\PYG{n}{FILLED}
+                \PYG{n}{order}\PYG{o}{.}\PYG{n}{completion\PYGZus{}timestamp} \PYG{o}{=} \PYG{n}{timezone}\PYG{o}{.}\PYG{n}{now}\PYG{p}{(}\PYG{p}{)}
+            \PYG{k}{elif} \PYG{n}{order}\PYG{o}{.}\PYG{n}{filled\PYGZus{}quantity} \PYG{o}{\PYGZgt{}} \PYG{l+m+mi}{0}\PYG{p}{:}
+                \PYG{n}{order}\PYG{o}{.}\PYG{n}{status} \PYG{o}{=} \PYG{n}{OrderStatus}\PYG{o}{.}\PYG{n}{PARTIALLY\PYGZus{}FILLED}
+            \PYG{k}{if} \PYG{o+ow}{not} \PYG{n}{order}\PYG{o}{.}\PYG{n}{first\PYGZus{}fill\PYGZus{}timestamp}\PYG{p}{:}
+                \PYG{n}{order}\PYG{o}{.}\PYG{n}{first\PYGZus{}fill\PYGZus{}timestamp} \PYG{o}{=} \PYG{n}{timezone}\PYG{o}{.}\PYG{n}{now}\PYG{p}{(}\PYG{p}{)}
+            \PYG{n}{order}\PYG{o}{.}\PYG{n}{last\PYGZus{}fill\PYGZus{}timestamp} \PYG{o}{=} \PYG{n}{timezone}\PYG{o}{.}\PYG{n}{now}\PYG{p}{(}\PYG{p}{)}
+            \PYG{n}{order}\PYG{o}{.}\PYG{n}{save}\PYG{p}{(}\PYG{p}{)}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{last\PYGZus{}trade\PYGZus{}price} \PYG{o}{=} \PYG{n}{price}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{last\PYGZus{}trade\PYGZus{}quantity} \PYG{o}{=} \PYG{n}{quantity}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{last\PYGZus{}trade\PYGZus{}timestamp} \PYG{o}{=} \PYG{n}{timezone}\PYG{o}{.}\PYG{n}{now}\PYG{p}{(}\PYG{p}{)}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{daily\PYGZus{}volume} \PYG{o}{+}\PYG{o}{=} \PYG{n}{quantity}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{daily\PYGZus{}turnover} \PYG{o}{+}\PYG{o}{=} \PYG{n}{trade}\PYG{o}{.}\PYG{n}{notional\PYGZus{}value}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{trade\PYGZus{}count} \PYG{o}{+}\PYG{o}{=} \PYG{l+m+mi}{1}
+        \PYG{k}{if} \PYG{o+ow}{not} \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{daily\PYGZus{}high} \PYG{o+ow}{or} \PYG{n}{price} \PYG{o}{\PYGZgt{}} \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{daily\PYGZus{}high}\PYG{p}{:}
+            \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{daily\PYGZus{}high} \PYG{o}{=} \PYG{n}{price}
+        \PYG{k}{if} \PYG{o+ow}{not} \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{daily\PYGZus{}low} \PYG{o+ow}{or} \PYG{n}{price} \PYG{o}{\PYGZlt{}} \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{daily\PYGZus{}low}\PYG{p}{:}
+            \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{daily\PYGZus{}low} \PYG{o}{=} \PYG{n}{price}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{save}\PYG{p}{(}\PYG{p}{)}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{logger}\PYG{o}{.}\PYG{n}{info}\PYG{p}{(}\PYG{l+s+sa}{f}\PYG{l+s+s2}{\PYGZdq{}}\PYG{l+s+s2}{REAL TRADE: }\PYG{l+s+si}{\PYGZob{}}\PYG{n}{quantity}\PYG{l+s+si}{\PYGZcb{}}\PYG{l+s+s2}{@}\PYG{l+s+si}{\PYGZob{}}\PYG{n}{price}\PYG{l+s+si}{\PYGZcb{}}\PYG{l+s+s2}{ between }\PYG{l+s+si}{\PYGZob{}}\PYG{n}{aggressive\PYGZus{}order}\PYG{o}{.}\PYG{n}{user}\PYG{o}{.}\PYG{n}{username}\PYG{l+s+si}{\PYGZcb{}}\PYG{l+s+s2}{ and }\PYG{l+s+si}{\PYGZob{}}\PYG{n}{passive\PYGZus{}order}\PYG{o}{.}\PYG{n}{user}\PYG{o}{.}\PYG{n}{username}\PYG{l+s+si}{\PYGZcb{}}\PYG{l+s+s2}{\PYGZdq{}}\PYG{p}{)}
+        \PYG{k}{return} \PYG{p}{\PYGZob{}}
+            \PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{trade\PYGZus{}id}\PYG{l+s+s1}{\PYGZsq{}}\PYG{p}{:} \PYG{n}{trade}\PYG{o}{.}\PYG{n}{trade\PYGZus{}id}\PYG{p}{,}
+            \PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{quantity}\PYG{l+s+s1}{\PYGZsq{}}\PYG{p}{:} \PYG{n}{quantity}\PYG{p}{,}
+            \PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{price}\PYG{l+s+s1}{\PYGZsq{}}\PYG{p}{:} \PYG{n}{price}\PYG{p}{,}
+            \PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{aggressive\PYGZus{}order}\PYG{l+s+s1}{\PYGZsq{}}\PYG{p}{:} \PYG{n}{aggressive\PYGZus{}order}\PYG{p}{,}
+            \PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{passive\PYGZus{}order}\PYG{l+s+s1}{\PYGZsq{}}\PYG{p}{:} \PYG{n}{passive\PYGZus{}order}
+        \PYG{p}{\PYGZcb{}}
+
+    \PYG{k}{def}\PYG{+w}{ }\PYG{n+nf}{\PYGZus{}add\PYGZus{}to\PYGZus{}order\PYGZus{}book}\PYG{p}{(}\PYG{n+nb+bp}{self}\PYG{p}{,} \PYG{n}{order}\PYG{p}{:} \PYG{n}{SimulatedOrder}\PYG{p}{,} \PYG{n}{quantity}\PYG{p}{:} \PYG{n+nb}{int}\PYG{p}{)}\PYG{p}{:}
+        \PYG{n}{level}\PYG{p}{,} \PYG{n}{created} \PYG{o}{=} \PYG{n}{OrderBookLevel}\PYG{o}{.}\PYG{n}{objects}\PYG{o}{.}\PYG{n}{get\PYGZus{}or\PYGZus{}create}\PYG{p}{(}
+            \PYG{n}{order\PYGZus{}book}\PYG{o}{=}\PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{p}{,}
+            \PYG{n}{side}\PYG{o}{=}\PYG{n}{order}\PYG{o}{.}\PYG{n}{side}\PYG{p}{,}
+            \PYG{n}{price}\PYG{o}{=}\PYG{n}{order}\PYG{o}{.}\PYG{n}{price}\PYG{p}{,}
+            \PYG{n}{defaults}\PYG{o}{=}\PYG{p}{\PYGZob{}}\PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{quantity}\PYG{l+s+s1}{\PYGZsq{}}\PYG{p}{:} \PYG{l+m+mi}{0}\PYG{p}{,} \PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{order\PYGZus{}count}\PYG{l+s+s1}{\PYGZsq{}}\PYG{p}{:} \PYG{l+m+mi}{0}\PYG{p}{\PYGZcb{}}
+        \PYG{p}{)}
+        \PYG{n}{max\PYGZus{}position} \PYG{o}{=} \PYG{n}{level}\PYG{o}{.}\PYG{n}{order\PYGZus{}queue}\PYG{o}{.}\PYG{n}{aggregate}\PYG{p}{(}
+            \PYG{n}{max\PYGZus{}pos}\PYG{o}{=}\PYG{n}{models}\PYG{o}{.}\PYG{n}{Max}\PYG{p}{(}\PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{queue\PYGZus{}position}\PYG{l+s+s1}{\PYGZsq{}}\PYG{p}{)}
+        \PYG{p}{)}\PYG{p}{[}\PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{max\PYGZus{}pos}\PYG{l+s+s1}{\PYGZsq{}}\PYG{p}{]} \PYG{o+ow}{or} \PYG{l+m+mi}{0}
+        \PYG{n}{OrderQueue}\PYG{o}{.}\PYG{n}{objects}\PYG{o}{.}\PYG{n}{create}\PYG{p}{(}
+            \PYG{n}{level}\PYG{o}{=}\PYG{n}{level}\PYG{p}{,}
+            \PYG{n}{order}\PYG{o}{=}\PYG{n}{order}\PYG{p}{,}
+            \PYG{n}{remaining\PYGZus{}quantity}\PYG{o}{=}\PYG{n}{quantity}\PYG{p}{,}
+            \PYG{n}{queue\PYGZus{}position}\PYG{o}{=}\PYG{n}{max\PYGZus{}position} \PYG{o}{+} \PYG{l+m+mi}{1}
+        \PYG{p}{)}
+        \PYG{n}{level}\PYG{o}{.}\PYG{n}{quantity} \PYG{o}{+}\PYG{o}{=} \PYG{n}{quantity}
+        \PYG{n}{level}\PYG{o}{.}\PYG{n}{order\PYGZus{}count} \PYG{o}{+}\PYG{o}{=} \PYG{l+m+mi}{1}
+        \PYG{n}{level}\PYG{o}{.}\PYG{n}{save}\PYG{p}{(}\PYG{p}{)}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{logger}\PYG{o}{.}\PYG{n}{info}\PYG{p}{(}\PYG{l+s+sa}{f}\PYG{l+s+s2}{\PYGZdq{}}\PYG{l+s+s2}{Added order }\PYG{l+s+si}{\PYGZob{}}\PYG{n}{order}\PYG{o}{.}\PYG{n}{order\PYGZus{}id}\PYG{l+s+si}{\PYGZcb{}}\PYG{l+s+s2}{ to book: }\PYG{l+s+si}{\PYGZob{}}\PYG{n}{quantity}\PYG{l+s+si}{\PYGZcb{}}\PYG{l+s+s2}{@}\PYG{l+s+si}{\PYGZob{}}\PYG{n}{order}\PYG{o}{.}\PYG{n}{price}\PYG{l+s+si}{\PYGZcb{}}\PYG{l+s+s2}{\PYGZdq{}}\PYG{p}{)}
+
+    \PYG{k}{def}\PYG{+w}{ }\PYG{n+nf}{\PYGZus{}update\PYGZus{}best\PYGZus{}quotes}\PYG{p}{(}\PYG{n+nb+bp}{self}\PYG{p}{)}\PYG{p}{:}
+        \PYG{n}{best\PYGZus{}bid\PYGZus{}level} \PYG{o}{=} \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{levels}\PYG{o}{.}\PYG{n}{filter}\PYG{p}{(}
+            \PYG{n}{side}\PYG{o}{=}\PYG{n}{OrderSide}\PYG{o}{.}\PYG{n}{BUY}\PYG{p}{,}
+            \PYG{n}{quantity\PYGZus{}\PYGZus{}gt}\PYG{o}{=}\PYG{l+m+mi}{0}
+        \PYG{p}{)}\PYG{o}{.}\PYG{n}{order\PYGZus{}by}\PYG{p}{(}\PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{\PYGZhy{}price}\PYG{l+s+s1}{\PYGZsq{}}\PYG{p}{)}\PYG{o}{.}\PYG{n}{first}\PYG{p}{(}\PYG{p}{)}
+        \PYG{k}{if} \PYG{n}{best\PYGZus{}bid\PYGZus{}level}\PYG{p}{:}
+            \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{best\PYGZus{}bid\PYGZus{}price} \PYG{o}{=} \PYG{n}{best\PYGZus{}bid\PYGZus{}level}\PYG{o}{.}\PYG{n}{price}
+            \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{best\PYGZus{}bid\PYGZus{}quantity} \PYG{o}{=} \PYG{n}{best\PYGZus{}bid\PYGZus{}level}\PYG{o}{.}\PYG{n}{quantity}
+        \PYG{k}{else}\PYG{p}{:}
+            \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{best\PYGZus{}bid\PYGZus{}price} \PYG{o}{=} \PYG{k+kc}{None}
+            \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{best\PYGZus{}bid\PYGZus{}quantity} \PYG{o}{=} \PYG{l+m+mi}{0}
+        \PYG{n}{best\PYGZus{}ask\PYGZus{}level} \PYG{o}{=} \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{levels}\PYG{o}{.}\PYG{n}{filter}\PYG{p}{(}
+            \PYG{n}{side}\PYG{o}{=}\PYG{n}{OrderSide}\PYG{o}{.}\PYG{n}{SELL}\PYG{p}{,}
+            \PYG{n}{quantity\PYGZus{}\PYGZus{}gt}\PYG{o}{=}\PYG{l+m+mi}{0}
+        \PYG{p}{)}\PYG{o}{.}\PYG{n}{order\PYGZus{}by}\PYG{p}{(}\PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{price}\PYG{l+s+s1}{\PYGZsq{}}\PYG{p}{)}\PYG{o}{.}\PYG{n}{first}\PYG{p}{(}\PYG{p}{)}
+        \PYG{k}{if} \PYG{n}{best\PYGZus{}ask\PYGZus{}level}\PYG{p}{:}
+            \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{best\PYGZus{}ask\PYGZus{}price} \PYG{o}{=} \PYG{n}{best\PYGZus{}ask\PYGZus{}level}\PYG{o}{.}\PYG{n}{price}
+            \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{best\PYGZus{}ask\PYGZus{}quantity} \PYG{o}{=} \PYG{n}{best\PYGZus{}ask\PYGZus{}level}\PYG{o}{.}\PYG{n}{quantity}
+        \PYG{k}{else}\PYG{p}{:}
+            \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{best\PYGZus{}ask\PYGZus{}price} \PYG{o}{=} \PYG{k+kc}{None}
+            \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{best\PYGZus{}ask\PYGZus{}quantity} \PYG{o}{=} \PYG{l+m+mi}{0}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{order\PYGZus{}book}\PYG{o}{.}\PYG{n}{save}\PYG{p}{(}\PYG{p}{)}
+\end{MintedVerbatim}

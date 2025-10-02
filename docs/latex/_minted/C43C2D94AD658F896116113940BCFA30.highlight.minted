@@ -1,0 +1,42 @@
+\begin{MintedVerbatim}[commandchars=\\\{\}]
+\PYG{k+kn}{import}\PYG{+w}{ }\PYG{n+nn}{logging}
+\PYG{k+kn}{from}\PYG{+w}{ }\PYG{n+nn}{typing}\PYG{+w}{ }\PYG{k+kn}{import} \PYG{n}{Dict}
+\PYG{k+kn}{from}\PYG{+w}{ }\PYG{n+nn}{decimal}\PYG{+w}{ }\PYG{k+kn}{import} \PYG{n}{Decimal}
+\PYG{k+kn}{from}\PYG{+w}{ }\PYG{n+nn}{django}\PYG{n+nn}{.}\PYG{n+nn}{utils}\PYG{+w}{ }\PYG{k+kn}{import} \PYG{n}{timezone}
+\PYG{k+kn}{from}\PYG{+w}{ }\PYG{n+nn}{.}\PYG{n+nn}{models}\PYG{+w}{ }\PYG{k+kn}{import} \PYG{n}{SimulatedExchange}\PYG{p}{,} \PYG{n}{SimulatedInstrument}\PYG{p}{,} \PYG{n}{TradingSession}
+\PYG{k+kn}{from}\PYG{+w}{ }\PYG{n+nn}{apps}\PYG{n+nn}{.}\PYG{n+nn}{order\PYGZus{}management}\PYG{n+nn}{.}\PYG{n+nn}{models}\PYG{+w}{ }\PYG{k+kn}{import} \PYG{n}{MatchingEngine}\PYG{p}{,} \PYG{n}{OrderBook}\PYG{p}{,} \PYG{n}{OrderBookLevel}
+
+\PYG{n}{logger} \PYG{o}{=} \PYG{n}{logging}\PYG{o}{.}\PYG{n}{getLogger}\PYG{p}{(}\PYG{n+nv+vm}{\PYGZus{}\PYGZus{}name\PYGZus{}\PYGZus{}}\PYG{p}{)}
+
+\PYG{k}{class}\PYG{+w}{ }\PYG{n+nc}{SimulatedExchangeService}\PYG{p}{:}
+    \PYG{k}{def}\PYG{+w}{ }\PYG{n+nf+fm}{\PYGZus{}\PYGZus{}init\PYGZus{}\PYGZus{}}\PYG{p}{(}\PYG{n+nb+bp}{self}\PYG{p}{)}\PYG{p}{:}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{logger} \PYG{o}{=} \PYG{n}{logging}\PYG{o}{.}\PYG{n}{getLogger}\PYG{p}{(}\PYG{l+s+sa}{f}\PYG{l+s+s2}{\PYGZdq{}}\PYG{l+s+si}{\PYGZob{}}\PYG{n+nv+vm}{\PYGZus{}\PYGZus{}name\PYGZus{}\PYGZus{}}\PYG{l+s+si}{\PYGZcb{}}\PYG{l+s+s2}{.}\PYG{l+s+si}{\PYGZob{}}\PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n+nv+vm}{\PYGZus{}\PYGZus{}class\PYGZus{}\PYGZus{}}\PYG{o}{.}\PYG{n+nv+vm}{\PYGZus{}\PYGZus{}name\PYGZus{}\PYGZus{}}\PYG{l+s+si}{\PYGZcb{}}\PYG{l+s+s2}{\PYGZdq{}}\PYG{p}{)}
+
+    \PYG{k}{def}\PYG{+w}{ }\PYG{n+nf}{create\PYGZus{}simulated\PYGZus{}exchange}\PYG{p}{(}\PYG{n+nb+bp}{self}\PYG{p}{,} \PYG{n}{real\PYGZus{}exchange}\PYG{p}{,} \PYG{o}{*}\PYG{o}{*}\PYG{n}{kwargs}\PYG{p}{)} \PYG{o}{\PYGZhy{}}\PYG{o}{\PYGZgt{}} \PYG{n}{SimulatedExchange}\PYG{p}{:}
+        \PYG{n}{sim\PYGZus{}exchange} \PYG{o}{=} \PYG{n}{SimulatedExchange}\PYG{o}{.}\PYG{n}{objects}\PYG{o}{.}\PYG{n}{create}\PYG{p}{(}
+            \PYG{n}{name}\PYG{o}{=}\PYG{l+s+sa}{f}\PYG{l+s+s2}{\PYGZdq{}}\PYG{l+s+s2}{Simulated }\PYG{l+s+si}{\PYGZob{}}\PYG{n}{real\PYGZus{}exchange}\PYG{o}{.}\PYG{n}{name}\PYG{l+s+si}{\PYGZcb{}}\PYG{l+s+s2}{\PYGZdq{}}\PYG{p}{,}
+            \PYG{n}{code}\PYG{o}{=}\PYG{l+s+sa}{f}\PYG{l+s+s2}{\PYGZdq{}}\PYG{l+s+s2}{SIM\PYGZus{}}\PYG{l+s+si}{\PYGZob{}}\PYG{n}{real\PYGZus{}exchange}\PYG{o}{.}\PYG{n}{code}\PYG{l+s+si}{\PYGZcb{}}\PYG{l+s+s2}{\PYGZdq{}}\PYG{p}{,}
+            \PYG{n}{real\PYGZus{}exchange}\PYG{o}{=}\PYG{n}{real\PYGZus{}exchange}\PYG{p}{,}
+            \PYG{o}{*}\PYG{o}{*}\PYG{n}{kwargs}
+        \PYG{p}{)}
+        \PYG{n}{MatchingEngine}\PYG{o}{.}\PYG{n}{objects}\PYG{o}{.}\PYG{n}{create}\PYG{p}{(}
+            \PYG{n}{exchange}\PYG{o}{=}\PYG{n}{sim\PYGZus{}exchange}\PYG{p}{,}
+            \PYG{n}{matching\PYGZus{}algorithm}\PYG{o}{=}\PYG{l+s+s1}{\PYGZsq{}}\PYG{l+s+s1}{PRICE\PYGZus{}TIME}\PYG{l+s+s1}{\PYGZsq{}}
+        \PYG{p}{)}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{logger}\PYG{o}{.}\PYG{n}{info}\PYG{p}{(}\PYG{l+s+sa}{f}\PYG{l+s+s2}{\PYGZdq{}}\PYG{l+s+s2}{Created simulated exchange: }\PYG{l+s+si}{\PYGZob{}}\PYG{n}{sim\PYGZus{}exchange}\PYG{o}{.}\PYG{n}{code}\PYG{l+s+si}{\PYGZcb{}}\PYG{l+s+s2}{\PYGZdq{}}\PYG{p}{)}
+        \PYG{k}{return} \PYG{n}{sim\PYGZus{}exchange}
+
+    \PYG{k}{def}\PYG{+w}{ }\PYG{n+nf}{add\PYGZus{}instrument\PYGZus{}to\PYGZus{}exchange}\PYG{p}{(}\PYG{n+nb+bp}{self}\PYG{p}{,} \PYG{n}{sim\PYGZus{}exchange}\PYG{p}{:} \PYG{n}{SimulatedExchange}\PYG{p}{,}
+                                 \PYG{n}{real\PYGZus{}ticker}\PYG{p}{:} \PYG{n}{Ticker}\PYG{p}{,} \PYG{o}{*}\PYG{o}{*}\PYG{n}{kwargs}\PYG{p}{)} \PYG{o}{\PYGZhy{}}\PYG{o}{\PYGZgt{}} \PYG{n}{SimulatedInstrument}\PYG{p}{:}
+        \PYG{n}{sim\PYGZus{}instrument} \PYG{o}{=} \PYG{n}{SimulatedInstrument}\PYG{o}{.}\PYG{n}{objects}\PYG{o}{.}\PYG{n}{create}\PYG{p}{(}
+            \PYG{n}{real\PYGZus{}ticker}\PYG{o}{=}\PYG{n}{real\PYGZus{}ticker}\PYG{p}{,}
+            \PYG{n}{exchange}\PYG{o}{=}\PYG{n}{sim\PYGZus{}exchange}\PYG{p}{,}
+            \PYG{o}{*}\PYG{o}{*}\PYG{n}{kwargs}
+        \PYG{p}{)}
+        \PYG{n}{OrderBook}\PYG{o}{.}\PYG{n}{objects}\PYG{o}{.}\PYG{n}{create}\PYG{p}{(}\PYG{n}{instrument}\PYG{o}{=}\PYG{n}{sim\PYGZus{}instrument}\PYG{p}{)}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{\PYGZus{}initialize\PYGZus{}instrument\PYGZus{}pricing}\PYG{p}{(}\PYG{n}{sim\PYGZus{}instrument}\PYG{p}{)}
+        \PYG{n+nb+bp}{self}\PYG{o}{.}\PYG{n}{logger}\PYG{o}{.}\PYG{n}{info}\PYG{p}{(}\PYG{l+s+sa}{f}\PYG{l+s+s2}{\PYGZdq{}}\PYG{l+s+s2}{Added instrument }\PYG{l+s+si}{\PYGZob{}}\PYG{n}{real\PYGZus{}ticker}\PYG{o}{.}\PYG{n}{symbol}\PYG{l+s+si}{\PYGZcb{}}\PYG{l+s+s2}{ to }\PYG{l+s+si}{\PYGZob{}}\PYG{n}{sim\PYGZus{}exchange}\PYG{o}{.}\PYG{n}{code}\PYG{l+s+si}{\PYGZcb{}}\PYG{l+s+s2}{\PYGZdq{}}\PYG{p}{)}
+        \PYG{k}{return} \PYG{n}{sim\PYGZus{}instrument}
+
+    \PYG{c+c1}{\PYGZsh{} ... (other methods from SimulatedExchangeService)}
+\end{MintedVerbatim}
